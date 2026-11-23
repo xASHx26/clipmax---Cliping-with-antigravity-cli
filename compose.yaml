@@ -1,0 +1,24 @@
+name: clipmax
+services:
+  clipmax:
+    build: .
+    image: clipmax-studio:local
+    init: true
+    ports:
+      - "127.0.0.1:4310:4310"
+    environment:
+      AI_PROVIDER: ${AI_PROVIDER:-antigravity}
+      AI_MODEL: ${AI_MODEL:-}
+    volumes:
+      - projects:/var/lib/clipmax
+      - antigravity-home:/home/node
+    restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  projects:
+  antigravity-home:

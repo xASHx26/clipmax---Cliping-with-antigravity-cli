@@ -1,0 +1,16 @@
+**
+!package.json
+!package-lock.json
+!server.mjs
+!lib/
+!lib/**
+!public/
+!public/**
+!test/
+!test/**
+!scripts/
+!scripts/setup-face-model.mjs
+!scripts/verify-container.mjs
+!docker/
+!docker/**
+!README.md

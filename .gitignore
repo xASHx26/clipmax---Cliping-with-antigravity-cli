@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/
+bin/
+*.log
+release/
+.DS_Store
+Thumbs.db
+coverage/
+*.pem
+*.key
+# Private diagnostic runs against a local user's media; not part of the app.
+scripts/verify-upgrade.mjs
+scripts/verify-mood-resume.mjs
+scripts/verify-packaged-framing.cjs

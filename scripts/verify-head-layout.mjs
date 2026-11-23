@@ -1,0 +1,10 @@
+import {mkdir,readFile} from 'node:fs/promises';import {resolve,join} from 'node:path';import assert from 'node:assert/strict';import jpeg from 'jpeg-js';import ffmpeg from 'ffmpeg-static';import {run,renderArgs} from '../lib/core.mjs';
+const dir=resolve('data/head-layout-verification');await mkdir(dir,{recursive:true});
+const source=join(dir,'source.mp4');
+await run(ffmpeg,['-y','-f','lavfi','-i','color=c=0x101410:s=640x360:r=30:d=2','-vf','drawbox=x=20:y=30:w=100:h=200:color=green:t=fill,drawbox=x=20:y=30:w=100:h=30:color=red:t=fill','-c:v','libx264','-pix_fmt','yuv420p',source]);
+await run(ffmpeg,renderArgs(source,{id:'clip-1',start:0,end:2},{captions:false,framing:{mode:'streamer',webcam:{x:20/640,y:30/360,w:100/640,h:200/360}}}),{cwd:dir});
+await run(ffmpeg,['-y','-i',join(dir,'clip-1.mp4'),'-vf','crop=1080:640:0:0,scale=270:160','-frames:v','1',join(dir,'camera-panel.jpg')]);
+const image=jpeg.decode(await readFile(join(dir,'camera-panel.jpg')),{useTArray:true});let headPixels=0;
+for(let i=0;i<image.data.length;i+=4)if(image.data[i]>180&&image.data[i+1]<90&&image.data[i+2]<90)headPixels++;
+assert.ok(headPixels>1000,'The upper head marker must survive an unusually tall webcam crop.');
+console.log('PASS: The complete upper head stays visible in the camera panel; fitting adds padding instead of shaving off the top.');

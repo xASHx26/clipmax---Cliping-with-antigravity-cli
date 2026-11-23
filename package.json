@@ -1,0 +1,90 @@
+{
+  "name": "clipmax-studio",
+  "version": "0.8.0",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "description": "Antigravity powered video clipping and publishing studio",
+  "author": "Clipmax",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "setup": "node scripts/setup.mjs",
+    "test": "node --test",
+    "desktop": "electron .",
+    "build:app": "electron-builder --win portable --x64"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@tensorflow-models/face-detection": "^1.0.3",
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
+    "@tensorflow/tfjs-converter": "^4.22.0",
+    "@tensorflow/tfjs-core": "^4.22.0",
+    "ffmpeg-static": "^5.3.0",
+    "jpeg-js": "^0.4.4"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "studio.clipmax.desktop",
+    "productName": "Clipmax Studio",
+    "asar": true,
+    "files": [
+      "desktop/**/*",
+      "lib/**/*",
+      "public/**/*",
+      "server.mjs",
+      "package.json",
+      "README.md"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/whisper",
+        "to": "bin/whisper",
+        "filter": [
+          "Release/whisper-cli.exe",
+          "Release/*.dll",
+          "ggml-base-q5_1.bin",
+          "LICENSE*"
+        ]
+      },
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "yt-dlp.exe"
+        ]
+      },
+      {
+        "from": "node_modules/ffmpeg-static/ffmpeg.exe",
+        "to": "bin/ffmpeg.exe"
+      },
+      {
+        "from": ".env.example",
+        "to": "config.example"
+      },
+      {
+        "from": "bin/face",
+        "to": "bin/face"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "portable",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "Clipmax-Studio-${version}-Windows.exe"
+    }
+  },
+  "allowScripts": {
+    "ffmpeg-static@5.3.0": true,
+    "electron@45.4.1": true
+  }
+}

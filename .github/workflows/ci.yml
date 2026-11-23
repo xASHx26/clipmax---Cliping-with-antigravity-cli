@@ -1,0 +1,31 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Linux image
+        run: docker compose build --pull
+      - name: Unit tests inside image
+        run: docker compose run --rm -T clipmax npm test
+      - name: Check real video, captions and tools
+        run: docker compose run --rm -T clipmax node scripts/verify-container.mjs
+      - name: Start app and check HTTP safety
+        run: |
+          docker compose up -d --wait --wait-timeout 90
+          curl --fail http://127.0.0.1:4310/healthz
+          curl --fail http://127.0.0.1:4310/ > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Origin: https://example.com' http://127.0.0.1:4310/api/status)" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: example.com' http://127.0.0.1:4310/healthz)" = 403
+      - name: Logs and cleanup
+        if: always()
+        run: |
+          docker compose logs --tail 100
+          docker compose down

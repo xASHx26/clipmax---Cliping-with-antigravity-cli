@@ -1,0 +1,16 @@
+import { mkdir, writeFile, chmod } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { run } from '../lib/core.mjs';
+const names = { win32: 'yt-dlp.exe', linux: 'yt-dlp_linux', darwin: 'yt-dlp_macos' };
+const name = names[process.platform];
+if (!name) throw new Error('Install yt-dlp for your operating system and set YTDLP_PATH.');
+await mkdir('bin', { recursive: true });
+console.log('Downloading yt-dlp from its official GitHub release…');
+const response = await fetch(`https://github.com/yt-dlp/yt-dlp/releases/latest/download/${name}`);
+if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+const target = resolve('bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
+await writeFile(target, Buffer.from(await response.arrayBuffer()));
+if (process.platform !== 'win32') await chmod(target, 0o755);
+console.log(`Ready: ${target}`);
+if (process.platform === 'win32') await run('powershell.exe', ['-NoProfile', '-File', resolve('scripts/setup-captions.ps1')], { timeout: 600000 });
+await run(process.execPath, [resolve('scripts/setup-face-model.mjs')], { timeout: 180000 });
