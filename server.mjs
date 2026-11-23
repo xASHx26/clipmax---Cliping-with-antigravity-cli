@@ -16,8 +16,9 @@ import { autoUploadSettings, maybeAutoUpload, publishOptions } from './lib/auto-
 import { mediaSettings, probeSource, prepareAudio, hookWave } from './lib/audio.mjs';
 import { detectFraming } from './lib/framing.mjs';
 import { completeClipEnd } from './lib/context.mjs';
-import { FOCUSES, MOODS, MOMENTS, groundMood, resolveSound, planBatchSound } from './lib/mood.mjs';
-import { effectWave, backgroundWave, EFFECT_LENGTHS } from './lib/sounds.mjs';
+import { FOCUSES, MOODS, MOMENTS, groundMood, resolveSound, planBatchSound, soundSeed } from './lib/mood.mjs';
+import { effectWave, backgroundWave, EFFECT_LENGTHS, BACKGROUNDS } from './lib/sounds.mjs';
+import { clipAss } from './lib/captions.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url)), dataDir = process.env.CLIPMAX_DATA_DIR || join(root, 'data');
 const port = Number(process.env.PORT || 4310);
@@ -80,8 +81,10 @@ function editingPercent(job) {
 async function render(job, clip) {
   const dir = join(dataDir, job.id), source = join(dir, 'source.mp4');
   const rawSettings=mediaSettings(clip.media || job.media);
+  if(!rawSettings.soundSeed)rawSettings.soundSeed=clip.soundPlan?.soundSeed||soundSeed(`${job.id}:${clip.id}:${clip.start}`);
   const settings=resolveSound(rawSettings,clip);
   if(rawSettings.effects==='auto' && clip.soundPlan){settings.effects=clip.soundPlan.effects;settings.effectAt=clip.soundPlan.effectAt;settings.soundReason=clip.soundPlan.soundReason;}
+  if(rawSettings.background==='auto' && clip.soundPlan)settings.background=clip.soundPlan.background;
   job.mediaInfo ||= await probeSource(ffmpeg, source);
   await stage(job, 'audio', { state: 'running', percent: 0, message: 'Preparing speech and background audio' }, clip.id);
   await stage(job, 'audio', { state: 'running', percent: null, message: `Mixing audio for ${clip.id}` });
@@ -98,10 +101,14 @@ async function render(job, clip) {
   const cues = JSON.parse(await readFile(join(dir, 'cues.json'), 'utf8'));
   const srt = clipSrt(cues, clip.start, clip.end);
   await writeFile(join(dir, `${clip.id}.srt`), srt);
+  const ass = clipAss(cues, clip.start, clip.end, { aspect: job.aspect, style: settings.captionStyle });
+  await writeFile(join(dir, `${clip.id}.ass`), ass);
   clip.burnedCaptions = Boolean(job.captions && srt && await canBurn());
   if (job.captions && !clip.burnedCaptions) job.notice = srt ? 'This FFmpeg build cannot burn captions. Download the included SRT file.' : 'Source has no captions. Clips export without subtitles.';
   const framing = { mode: settings.framing === 'auto' ? clip.framing?.mode || 'preserve' : settings.framing, webcam: settings.webcam || clip.framing?.webcam, contentWidth:settings.contentWidth };
-  await run(ffmpeg, renderArgs(source, clip, { aspect: job.aspect, captions: job.captions, subtitleFilter: clip.burnedCaptions, framing, audioFile: mixed.file }), { cwd: dir, onLine: mediaProgress(clip.end - clip.start, value => {
+  clip.captionStyle = settings.captionStyle;
+  clip.captionTiming = cues.some(cue => cue.words?.length) ? 'word timestamps where available' : 'estimated from caption segments';
+  await run(ffmpeg, renderArgs(source, clip, { aspect: job.aspect, captions: job.captions, subtitleFilter: clip.burnedCaptions, animatedCaptions: Boolean(ass), framing, audioFile: mixed.file }), { cwd: dir, onLine: mediaProgress(clip.end - clip.start, value => {
     progress(job, 'editing', { ...value, state: 'running', message: clip.burnedCaptions ? 'Encoding video with captions' : 'Encoding video' }, clip.id);
     progress(job, 'editing', { state: 'running', percent: editingPercent(job), message: 'Editing and exporting clips' });
   }) });
@@ -161,7 +168,7 @@ async function finishJob(job, dir, cues, config) {
     job.status = 'analyzing'; await stage(job, 'analysis', { state: 'running', percent: null, message: 'AI is selecting moments' });
     job.clips = validateClips(await analyze({ job, dir, cues, ffmpeg, source: join(dir, 'source.mp4'), config, onProgress: value => progress(job, 'analysis', { ...value, state: 'running' }) }), job.duration, job.count, job.maxSeconds);
     job.clips = job.clips.map(clip => completeClipEnd(clip,cues,job.duration,job.maxSeconds));
-    job.clips=planBatchSound(job.clips.map(clip=>groundMood(clip,cues)),mediaSettings(job.media));
+    job.clips=planBatchSound(job.clips.map(clip=>groundMood(clip,cues)),mediaSettings(job.media),job.id);
     job.workflow.clips={};
     await stage(job, 'analysis', { state: 'done', message: `${job.clips.length} clips selected` });
     await stage(job,'framing',{state:'running',percent:null,message:'Finding streamer-safe layouts'});
@@ -253,8 +260,8 @@ const server = http.createServer(async (req, res) => {
     if (req.headers.origin && ![`http://127.0.0.1:${port}`, `http://localhost:${port}`].includes(req.headers.origin)) return json(res, 403, { error: 'Cross-origin requests are blocked.' });
     const path = new URL(req.url, `http://127.0.0.1:${port}`).pathname;
     if (req.method === 'GET' && path === '/healthz') return json(res, 200, { status: 'ok' });
-    const preview=path.match(/^\/api\/audio-preview\/(?:background\/(ambient|pulse|melancholy|playful|tension)|(notification|pop|tick|chime|sting|record_stop|whoosh|impact|fahh))$/);
-    if(req.method==='GET' && preview){const demo=preview[1]?backgroundWave(preview[1]):effectWave(preview[2]);res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':demo.length});res.end(demo);return;}
+    const preview=path.match(/^\/api\/audio-preview\/(?:background\/([a-z_]+)|([a-z_]+))$/);
+    if(req.method==='GET' && preview){if(preview[1]?!BACKGROUNDS.includes(preview[1]):!EFFECT_LENGTHS[preview[2]]&&preview[2]!=='fahh')return json(res,404,{error:'Unknown sound.'});const seed=Number(new URL(req.url,`http://127.0.0.1:${port}`).searchParams.get('seed'))>>>0;const demo=preview[1]?backgroundWave(preview[1],seed):effectWave(preview[2]);res.writeHead(200,{'Content-Type':'audio/wav','Content-Length':demo.length});res.end(demo);return;}
     const audioUpload = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/audio(?:\/(effect))?$/);
     if (req.method !== 'GET' && req.headers['content-type'] !== 'application/json' && !(req.method === 'POST' && audioUpload && req.headers['content-type'] === 'application/octet-stream')) return json(res, 415, { error: 'Expected application/json.' });
     if (req.method === 'POST' && audioUpload) {
@@ -374,7 +381,7 @@ const server = http.createServer(async (req, res) => {
         const suggested=resolveSound({...mediaSettings(next.media||job.media),effects:'auto'},{...next,soundDesign:{...next.soundDesign,effect:undefined}});next.soundDesign={...next.soundDesign,effect:suggested.effects,reason:'Matched to the mood chosen in the editor'};
       }
       if(input.momentType!==undefined){if(!MOMENTS.includes(input.momentType))throw new Error('Choose a supported moment type.');next.momentType=input.momentType;}
-      const needsRender = next.start !== clip.start || next.end !== clip.end || input.media !== undefined || input.mood!==undefined || input.refreshFraming===true;
+      const needsRender = next.start !== clip.start || next.end !== clip.end || input.media !== undefined || input.mood!==undefined || input.refreshFraming===true || input.refreshStyle===true;
       if (needsRender && Object.keys(clip.publications).length) throw new Error('Published clips cannot be retrimmed. Create a new project.');
       job.editing = true;
       try { if (needsRender) { const dir=join(dataDir,job.id),cues=JSON.parse(await readFile(join(dir,'cues.json'),'utf8')); next.contextReviewNeeded=completeClipEnd(next,cues,job.duration,job.maxSeconds).contextReviewNeeded;

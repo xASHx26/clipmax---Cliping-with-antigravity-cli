@@ -22,3 +22,17 @@ test('mood evidence is checked against the selected transcript, and existing mus
  assert.equal(verified.moodEvidenceVerified,true);assert.equal(resolveSound(settings,verified).background,'none');
  assert.equal(groundMood({...data,evidence:'invented'},[{start:5,end:8,text:'Other words'}]).moodConfidence,.5);
 });
+test('automatic batches vary background families and save a distinct repeatable arrangement per clip',()=>{
+ const clips=Array.from({length:3},(_,i)=>clip('playful',{id:'clip-'+(i+1),start:i*10,end:i*10+10}));
+ const plans=planBatchSound(clips,settings,'project-one');
+ assert.equal(new Set(plans.map(c=>c.soundPlan.background)).size,3);
+ assert.equal(new Set(plans.map(c=>c.soundPlan.soundSeed)).size,3);
+ assert.deepEqual(plans,planBatchSound(clips,settings,'project-one'));
+ assert.notEqual(plans[0].soundPlan.soundSeed,planBatchSound(clips,settings,'project-two')[0].soundPlan.soundSeed);
+ assert.equal(resolveSound(settings,clip('hype',{soundDesign:{effect:'none',music:false}})).background,'none');
+});
+test('an accent can land on the payoff and is bounded inside the clip',()=>{
+ const data=clip('hype',{end:30,soundDesign:{effect:'bass_drop',at:18,music:true}});
+ assert.equal(resolveSound(settings,data).effectAt,18);
+ assert.equal(resolveSound(settings,{...data,end:10}).effectAt,9.6);
+});

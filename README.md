@@ -5,7 +5,7 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.8.0-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.9.0-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
@@ -22,9 +22,9 @@ Paste a video link. Find the weird reaction, unexpected reveal, emotional story,
 | :--- | :--- |
 | **Link → clips** | Import recorded YouTube, Twitch, Vimeo, TikTok, Facebook, and Instagram videos. Scan up to two hours of a longer recording. |
 | **Story-aware selection** | Look for setup, context, and payoff. Uncertain endings are flagged for review. |
-| **Local AI captions** | Use source subtitles or transcribe audio with the bundled multilingual Whisper model. Export burned captions and SRT files. |
+| **Local AI captions** | Use source subtitles or transcribe audio with the bundled multilingual Whisper model. Export animated phrase captions with word highlights, or choose steady/clean styles; SRT downloads remain available. |
 | **Head-safe layouts** | Sample faces and camera panels, add headroom, or preserve the full source over a blurred background when uncertain. |
-| **Mood-aware audio** | Keep speech clear, duck background beds, and choose varied opening accents to suit the edit. Upload your own music or hook sound. |
+| **Mood-aware audio** | Keep speech clear, duck background beds, and choose varied opening accents to suit the edit. Choose 17 opening accents and 13 background styles with per-clip arrangements, or upload your own audio. |
 | **Live project tree** | Follow the vertical workflow with animated connections and progress from actual media-tool telemetry. |
 | **Review and refine** | Play previews, trim, edit captions and titles, adjust mood, recheck framing, and delete or restore projects. |
 | **App-side MCP** | Connect optional editing and research services in the Plugins tab and run tools with reviewed inputs. |
@@ -93,6 +93,14 @@ The app generates its vault key on first start with restricted file permissions.
 `docker compose down` keeps named volumes. **Adding `--volumes` removes their data.** Interrupted processing is marked stopped on restart and can be retried; uncertain uploads require checking the platform before retrying.
 
 The published port is bound to `127.0.0.1`, and Host/Origin checks remain enabled. This is a local, single-user application. Public hosting needs authentication and additional deployment work; do not expose port 4310 directly to the internet.
+
+## Animated captions and fresh audio
+
+Choose **Pop & highlight**, **Word highlight**, or **Clean phrases** under editing settings. Captions use short phrases, bold outlines, safe positioning, and font fitting. Whisper full JSON preserves word/subword timestamps when valid; source-caption tracks and older projects use estimated word timing. SRT downloads stay plain and portable. To update an existing unposted clip, open Edit clip and choose **Re-render captions & sound**.
+
+Automatic batches vary suitable music families and save an arrangement seed for each clip, so exporting again preserves the chosen mix. **New background variation** chooses another arrangement without changing the original voice. New original sounds include tight bass drops, rimshots, rewinds, camera snaps, sparkle reveals, error bloops, cartoon slides, energy hits, and bright glass accents. Backgrounds add lo-fi keys/drums, bouncy bass, comedy pizzicato, cinematic piano/pads, and suspense pulses alongside fingerpicked acoustic, playful fiddle/plucks, epic orchestral builds, and the existing options. These are original synthesized arrangements, not extracted meme soundtracks.
+
+Reference videos supplied for this update: [Jack reaction edit](https://www.youtube.com/shorts/8PwGWe7cZbU), [golf commentary](https://www.youtube.com/shorts/C3rTyacPgM8), [alarm demonstration](https://www.youtube.com/shorts/nCjoqIu_N1U), and [Gatorade edit](https://www.youtube.com/shorts/u4kTT35aoIY). Frame inspection shows short commentary captions versus persistent meme headlines. Antigravity also analyzed the audio through its native media reader: reaction vocals/pitch drops, acoustic/folk backing, fiddle/chime cues, and an orchestral swell with bass/energy accents were reported. Exact soundtrack identities are unconfirmed; reference audio is not shipped with Clipmax. See the [reference study](docs/reference-study.md).
 
 ## Preview, then publish
 

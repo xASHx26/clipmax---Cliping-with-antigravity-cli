@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { run, renderArgs } from '../lib/core.mjs';
 import { prepareAudio, mediaSettings, probeSource } from '../lib/audio.mjs';
 import { detectFraming } from '../lib/framing.mjs';
+import { clipAss } from '../lib/captions.mjs';
 
 const ffmpeg = process.env.FFMPEG_PATH || 'ffmpeg';
 const dir = await mkdtemp(join(tmpdir(), 'clipmax-container-'));
@@ -16,9 +17,10 @@ try {
   const clip = { id: 'clip-1', start: 0, end: 2 };
   const framing = await detectFraming({ job: { clips: [clip] }, dir, source, ffmpeg });
   assert.ok(framing['clip-1']);
-  const audio = await prepareAudio({ ffmpeg, source, dir, clip, settings: mediaSettings({ background: 'ambient', effects: 'pop' }), hasAudio: true });
+  const audio = await prepareAudio({ ffmpeg, source, dir, clip, settings: mediaSettings({ background: 'bounce', effects: 'bass_drop', soundSeed:123 }), hasAudio: true });
   await writeFile(join(dir, 'clip-1.srt'), '1\n00:00:00,000 --> 00:00:02,000\nClipmax container check\n');
-  await run(ffmpeg, renderArgs(source, clip, { framing: { mode: 'preserve' }, audioFile: audio.file, subtitleFilter: true }), { cwd: dir });
+  await writeFile(join(dir, 'clip-1.ass'), clipAss([{start:0,end:2,text:'Clipmax captions move with you.'}],0,2));
+  await run(ffmpeg, renderArgs(source, clip, { framing: { mode: 'preserve' }, audioFile: audio.file, subtitleFilter: true, animatedCaptions:true }), { cwd: dir });
   const output = join(dir, 'clip-1.mp4');
   assert.ok((await stat(output)).size > 1000);
   assert.equal((await probeSource(ffmpeg, output)).hasAudio, true);

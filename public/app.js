@@ -14,10 +14,11 @@ async function api(path, method = 'GET', body) {
 function time(seconds) { return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`; }
 function mediaInputs(prefix) {
   const webcam = prefix === 'edit' && ['x','y','w','h'].every(key => $('edit-cam-'+key).value !== '') ? Object.fromEntries(['x','y','w','h'].map(key => [key,Number($('edit-cam-'+key).value)/100])) : null;
-  return { framing: $(prefix+'-framing').value, webcam, contentWidth:Number($(prefix+'-content-width').value)/100, background: $(prefix+'-background').value, musicVolume: Number($(prefix+'-music-volume').value)/100, sourceVolume: Number($(prefix+'-source-volume').value)/100, normalize: $(prefix+'-normalize').checked, effects: $(prefix+'-effects').value, effectVolume:Number($(prefix+'-effect-volume').value)/100, effectAt: Number($(prefix+'-effect-at').value) };
+  return { captionStyle:$(prefix+'-caption-style').value, soundSeed:Number($(prefix+'-sound-seed').value), framing: $(prefix+'-framing').value, webcam, contentWidth:Number($(prefix+'-content-width').value)/100, background: $(prefix+'-background').value, musicVolume: Number($(prefix+'-music-volume').value)/100, sourceVolume: Number($(prefix+'-source-volume').value)/100, normalize: $(prefix+'-normalize').checked, effects: $(prefix+'-effects').value, effectVolume:Number($(prefix+'-effect-volume').value)/100, effectAt: Number($(prefix+'-effect-at').value) };
 }
 function fillMediaInputs(settings) {
   for (const [key,fallback] of [['framing','auto'],['background','auto'],['effects','auto']]) $('edit-'+key).value = settings[key] || fallback;
+  $('edit-caption-style').value=settings.captionStyle||'kinetic'; $('edit-sound-seed').value=settings.soundSeed||editing.clip.audio?.soundSeed||0;
   $('edit-mood').value=editing.clip.mood || 'neutral'; $('edit-mood-reason').textContent=editing.clip.moodReason || 'Mood not analyzed yet. Use Improve story & mix to find unusual or emotional moments.'; editing.initialMood=$('edit-mood').value;
   $('edit-music-volume').value = (settings.musicVolume ?? .18)*100; $('edit-source-volume').value = (settings.sourceVolume ?? 1)*100;
   $('edit-content-width').value=(settings.contentWidth ?? .6)*100;
@@ -30,6 +31,7 @@ $('preview-sound').addEventListener('click', () => { const video = $('preview-vi
 $('edit-music-file').addEventListener('change', () => { if ($('edit-music-file').files.length) $('edit-background').value='custom'; });
 $('edit-effect-file').addEventListener('change',()=>{if($('edit-effect-file').files.length)$('edit-effects').value='custom';});
 let effectDemo;
+document.addEventListener('click',event=>{const remix=event.target.closest('[data-remix]');if(!remix)return;const prefix=remix.dataset.remix;const values=new Uint32Array(1);crypto.getRandomValues(values);$(prefix+'-sound-seed').value=values[0]||1;notify(prefix==='edit'?'Fresh arrangement selected. Preview the background, then save the clip.':'Fresh arrangement selected for the next project.');});
 document.addEventListener('click',event=>{
  const button=event.target.closest('[data-effect-demo],[data-background-demo]');if(!button)return;
  const p=button.dataset.effectDemo || button.dataset.backgroundDemo,bg=Boolean(button.dataset.backgroundDemo);
@@ -37,14 +39,14 @@ document.addEventListener('click',event=>{
  if(sound==='auto'){
   if(p!=='edit'||!editing)return notify('Auto chooses after each clip is analyzed. Select a specific sound to audition it.');
   const mood=$('edit-mood').value;
-  sound=bg?({sad:'melancholy',awkward:'playful',surprised:'playful',hype:'pulse',tense:'tension'}[mood]||'ambient'):({sad:'none',awkward:'record_stop',surprised:'pop',playful:'tick',hype:'impact',tense:'tick',warm:'chime',neutral:'none'}[mood]||'none');
+  sound=bg?({sad:'cinematic',awkward:'mischief',surprised:'bounce',hype:'bounce',tense:'suspense',warm:'lofi'}[mood]||'ambient'):({sad:'none',awkward:'record_stop',surprised:'pop',playful:'tick',hype:'impact',tense:'tick',warm:'chime',neutral:'none'}[mood]||'none');
   if(mood===editing.clip.mood)sound=bg?(editing.clip.audio?.background||sound):(editing.clip.audio?.effects||sound);
  }
  if(sound==='none')return notify('No added sound for this choice.');
  effectDemo?.pause();
  const file=p==='edit'?$(bg?'edit-music-file':'edit-effect-file').files[0]:null;
  if(sound==='custom'&&!file)return notify('Choose an audio file to preview it.');
- effectDemo=new Audio(sound==='custom'?URL.createObjectURL(file):'/api/audio-preview/'+(bg?'background/':'')+sound);effectDemo.volume=bg?.35:.65;effectDemo.play().catch(error=>notify(error.message));
+ effectDemo=new Audio(sound==='custom'?URL.createObjectURL(file):'/api/audio-preview/'+(bg?'background/':'')+sound+'?seed='+$(p+'-sound-seed').value);effectDemo.volume=bg?.35:.65;effectDemo.play().catch(error=>notify(error.message));
 });
 function autoUploadLabel(setting) {
   const messages = { pending: 'Auto-upload on · starts after export', checking: 'Checking auto-upload accounts', uploading: 'Auto-upload in progress', complete: 'Auto-upload accepted · check platform processing', attention: 'Auto-upload needs attention', blocked: 'Auto-upload paused · publish manually after review' };
@@ -79,7 +81,7 @@ function clipHtml(job, clip) {
   const chosen = selections.get(job.id)?.has(clip.id) ?? true;
   const browserStates = Object.entries(clip.browserHandoffs || {}).map(([p]) => '<div class="publication">' + labels[p] + ' · Upload opened in browser · Finish posting there</div>').join('');
   const publications = Object.entries(clip.publications || {}).map(([p, result]) => `<div class="publication">${labels[p]} · ${escape(result.status)}${result.url ? ` · <a href="${escape(result.url)}" target="_blank" rel="noopener">View post</a>` : ''}${result.error ? `<br>${escape(result.error)}<br>Check the platform before posting again.` : ''}</div>`).join('');
-  return `<article class="clip"><div class="video-wrap"><video src="${escape(clip.url)}" controls preload="metadata" playsinline></video><label class="clip-select"><input type="checkbox" data-select="${job.id}" value="${clip.id}" ${chosen ? 'checked' : ''}> Select</label></div><div class="clip-content"><div class="clip-heading"><h3>${escape(clip.title)}</h3><span class="score" title="AI editorial estimate, not a prediction of views">✦ ${clip.score}</span></div>${clip.mood ? `<div class="mood-tag">${escape(clip.momentType?.replaceAll('_',' ') || 'moment')} · ${escape(clip.mood)}${clip.moodConfidence<.6?' · review mood':''}</div>` : ''}<div class="clip-time">${time(clip.start)} – ${time(clip.end)} &nbsp;·&nbsp; ${Math.round(clip.end - clip.start)}s &nbsp;·&nbsp; ${escape(job.aspect)}</div><p class="clip-reason">${escape(clip.reason)}</p><div class="clip-actions"><button class="button secondary" data-preview="${job.id}" data-clip="${clip.id}">▷ Watch clip</button><button class="button secondary" data-edit="${job.id}" data-clip="${clip.id}" ${job.editing || job.publishing ? 'disabled' : ''}>Edit clip</button><a class="button secondary" href="${escape(clip.url)}" download="${clip.id}.mp4">Download</a>${clip.subtitles ? `<a class="button secondary" href="${escape(clip.subtitles)}" download="${clip.id}.srt">SRT</a>` : ''}</div>${clip.audio ? `<p class="clip-audio-note">♫ Original audio ${clip.audio.normalized ? 'balanced' : 'included'} · ${escape(clip.audio.background)} background · ${escape(clip.audio.effects)} opening</p>${clip.audio.decision ? `<p class="sound-reason">${escape(clip.audio.decision)}</p>` : ''}` : ''}${clip.contextReviewNeeded ? '<p class="error">Review the ending: a finished sentence could not be confirmed.</p>' : ''}${publications}${browserStates}</div></article>`;
+  return `<article class="clip"><div class="video-wrap"><video src="${escape(clip.url)}" controls preload="metadata" playsinline></video><label class="clip-select"><input type="checkbox" data-select="${job.id}" value="${clip.id}" ${chosen ? 'checked' : ''}> Select</label></div><div class="clip-content"><div class="clip-heading"><h3>${escape(clip.title)}</h3><span class="score" title="AI editorial estimate, not a prediction of views">✦ ${clip.score}</span></div>${clip.mood ? `<div class="mood-tag">${escape(clip.momentType?.replaceAll('_',' ') || 'moment')} · ${escape(clip.mood)}${clip.moodConfidence<.6?' · review mood':''}</div>` : ''}<div class="clip-time">${time(clip.start)} – ${time(clip.end)} &nbsp;·&nbsp; ${Math.round(clip.end - clip.start)}s &nbsp;·&nbsp; ${escape(job.aspect)}</div><p class="clip-reason">${escape(clip.reason)}</p><div class="clip-actions"><button class="button secondary" data-preview="${job.id}" data-clip="${clip.id}">▷ Watch clip</button><button class="button secondary" data-edit="${job.id}" data-clip="${clip.id}" ${job.editing || job.publishing ? 'disabled' : ''}>Edit clip</button><a class="button secondary" href="${escape(clip.url)}" download="${clip.id}.mp4">Download</a>${clip.subtitles ? `<a class="button secondary" href="${escape(clip.subtitles)}" download="${clip.id}.srt">SRT</a>` : ''}</div>${clip.audio ? `<p class="clip-audio-note">♫ Original audio ${clip.audio.normalized ? 'balanced' : 'included'} · ${escape(clip.audio.background)} background · ${escape(clip.audio.effects)} opening · ${escape(clip.captionStyle||'classic')} captions</p>${clip.audio.decision ? `<p class="sound-reason">${escape(clip.audio.decision)}</p>` : ''}` : ''}${clip.contextReviewNeeded ? '<p class="error">Review the ending: a finished sentence could not be confirmed.</p>' : ''}${publications}${browserStates}</div></article>`;
 }
 function render() {
   $('project-count').textContent = jobs.length;
@@ -261,6 +263,7 @@ $('project-list').addEventListener('click', e => {
     $('publish-consent').checked = false; $('publish-dialog').showModal();
   }
 });
+$('refresh-style').addEventListener('click',()=>{editing.refreshStyle=true;$('edit-form').requestSubmit();});
 $('recheck-framing').addEventListener('click',()=>{editing.refreshFraming=true;$('edit-framing').value='auto';$('edit-form').requestSubmit();});
 $('edit-form').addEventListener('submit', async e => {
   e.preventDefault(); $('save-edit').disabled = true; $('save-edit').textContent = 'Saving…';
@@ -270,7 +273,7 @@ $('edit-form').addEventListener('submit', async e => {
     const effectFile=$('edit-effect-file').files[0];
     if(effectFile){const upload=await fetch(`/api/jobs/${editing.job.id}/audio/effect`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:effectFile});if(!upload.ok)throw new Error((await upload.json()).error);$('edit-effects').value='custom';}
     const media = mediaInputs('edit'), changedMedia = Boolean(file) || Boolean(effectFile) || JSON.stringify(media) !== editing.initialMedia;
-    await api(`/api/jobs/${editing.job.id}/clips/${editing.clip.id}`, 'PATCH', { title: $('edit-title').value, caption: $('edit-caption').value, start: Number($('edit-start').value), end: Number($('edit-end').value), refreshFraming:editing.refreshFraming===true, ...(changedMedia ? {media} : {}), ...($('edit-mood').value!==editing.initialMood?{mood:$('edit-mood').value}:{}) });
+    await api(`/api/jobs/${editing.job.id}/clips/${editing.clip.id}`, 'PATCH', { title: $('edit-title').value, caption: $('edit-caption').value, start: Number($('edit-start').value), end: Number($('edit-end').value), refreshFraming:editing.refreshFraming===true, refreshStyle:editing.refreshStyle===true, ...(changedMedia ? {media} : {}), ...($('edit-mood').value!==editing.initialMood?{mood:$('edit-mood').value}:{}) });
     $('edit-dialog').close(); await refresh(); notify('Clip saved.');
   } catch (e) { notify(e.message); } finally { $('save-edit').disabled = false; $('save-edit').textContent = 'Save clip'; }
 });
