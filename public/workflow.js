@@ -70,5 +70,39 @@
     const metrics = Number.isFinite(current.bytes) && current.totalBytes ? `${bytes(current.bytes)} / ${bytes(current.totalBytes)}` : current.mediaTotal && Number.isFinite(current.mediaSeconds) ? `${seconds(current.mediaSeconds)} / ${seconds(current.mediaTotal)}` : '';
     return `<div class="project-activity"><div class="activity-heading"><strong>${esc(title)}</strong><span>${measured ? `${Math.floor(value)}%` : 'Working…'}</span></div><progress class="${measured ? '' : 'activity-indeterminate'}" max="100" ${measured ? `value="${value}"` : ''} aria-label="${esc(title)} progress"></progress><div class="activity-caption"><span>${esc(current.message || (job.publishing ? 'Connecting to your selected accounts' : 'Waiting for the next process update'))}</span><small>${esc(metrics)}</small></div></div>`;
   }
-  window.ClipmaxWorkflow = { html, activity };
+  function uploadProgress(job, watch) {
+    const rows = (watch.clipIds || []).flatMap(id => (watch.platforms || []).map(platform => {
+      const clip = job?.clips?.find(clip => clip.id === id), result = clip?.publications?.[platform];
+      const stage = job?.workflow?.clips?.[id]?.[`upload:${platform}`] || {};
+      const accepted = ['uploaded','processing','published'].includes(result?.status);
+      const failed = ['failed','unknown'].includes(result?.status) || stage.state === 'failed';
+      const waiting = result?.status === 'action_required' || stage.state === 'waiting';
+      const running = !accepted && !failed && !waiting && (stage.state === 'running' || result?.status === 'uploading');
+      const measured = Number.isFinite(stage.percent);
+      const percent = accepted ? 100 : measured ? Math.max(0, Math.min(99.9, stage.percent)) : 0;
+      const state = accepted ? 'accepted' : failed ? 'failed' : waiting ? 'waiting' : running ? 'running' : 'queued';
+      const label = accepted ? result.status === 'published' ? 'Published' : 'Upload accepted' : failed ? result?.status === 'unknown' ? 'Check platform · outcome unknown' : 'Upload failed' : waiting ? 'Your action needed' : running ? measured ? `${Math.floor(percent)}% uploaded` : 'Preparing upload…' : 'Queued';
+      const message = accepted ? result.status === 'published' ? 'Live on the platform' : 'The platform may still be processing the video.' : result?.error || stage.message || 'Waiting for an upload slot';
+      return {id,platform,clip,result,state,running,measured,percent,label,message};
+    }));
+    const accepted = rows.filter(row => row.state === 'accepted').length;
+    const attention = rows.some(row => ['failed','waiting'].includes(row.state));
+    const finished = !watch.requestPending && !job?.publishing;
+    const metadata = job?.workflow?.stages?.metadata;
+    const preparing = watch.requestPending || metadata?.state === 'running';
+    const unknown = rows.some(row => row.running && !row.measured) || preparing && !rows.some(row => row.running);
+    const value = rows.length ? rows.reduce((sum,row) => sum + row.percent,0) / rows.length : 0;
+    const heading = watch.error ? 'Publishing needs attention' : finished ? accepted === rows.length && rows.length ? 'Uploads accepted' : 'Publishing needs attention' : metadata?.state === 'running' ? 'Writing AI publishing details' : rows.some(row=>row.running) ? 'Uploading your clips' : 'Preparing your uploads';
+    const summary = watch.error || `${accepted} of ${rows.length} uploads accepted${finished && attention ? ' · review the results below' : ''}`;
+    const errors=[...new Set(rows.filter(row=>row.state==='failed').map(row=>row.message))];
+    const rejection=errors.some(error=>/exceeded the number of videos|uploadLimitExceeded/i.test(error)) ? 'YouTube’s daily channel upload limit has been reached. YouTube recommends trying again in 24 hours. Reconnecting does not reset this limit.' : errors.join(' · ');
+    return `<div class="upload-overall"><div><h3>${esc(heading)}</h3><span>${watch.error ? 'Review needed' : !unknown ? `${Math.floor(value)}%` : 'Working…'}</span></div><progress max="100" ${unknown ? '' : `value="${value}"`} aria-label="Selected uploads progress"></progress><p role="status">${esc(summary)}</p>${metadata?.state==='running'?`<small>${esc(metadata.message || 'Gemini is preparing titles, descriptions and tags.')}</small>`:''}</div>${rejection ? `<div class="upload-error" role="alert">${esc(rejection)}</div>` : ''}<div class="upload-progress-list">${rows.map(row => `<article class="upload-progress-row ${row.state}"><div class="upload-row-heading"><strong>${esc(row.clip?.title || row.id)}</strong><span>${esc(names[row.platform] || row.platform)}</span></div><div class="upload-row-state"><span>${esc(row.label)}</span><small>${Number.isFinite(job?.workflow?.clips?.[row.id]?.[`upload:${row.platform}`]?.bytes) ? esc(bytes(job.workflow.clips[row.id][`upload:${row.platform}`].bytes))+' sent' : ''}</small></div><progress max="100" ${row.running&&!row.measured?'':`value="${row.percent}"`} aria-label="${esc(row.id+' '+(names[row.platform]||row.platform))} upload progress"></progress><p>${esc(row.message)}</p>${row.result?.url && /^https:\/\//.test(row.result.url) ? `<a href="${esc(row.result.url)}" target="_blank" rel="noopener">View on ${esc(names[row.platform]||row.platform)}</a>` : ''}</article>`).join('')}</div><p class="muted upload-progress-note">Keep Clipmax open until the uploads are accepted. You can close this panel and keep working; progress stays available on the project.</p>`;
+  }
+  function uploadFailure(job) {
+    const errors=(job.clips||[]).flatMap(clip=>Object.entries(clip.publications||{}).filter(([,result])=>['failed','unknown'].includes(result.status)).map(([platform,result])=>`${names[platform]||platform}: ${result.error||'Upload outcome unknown; check the platform.'}`));
+    if(!errors.length)return '';
+    const limit=errors.some(error=>/exceeded the number of videos|uploadLimitExceeded/i.test(error));
+    return `<div class="upload-error" role="alert"><strong>${limit?'YouTube daily upload limit reached':'Publishing needs attention'}</strong><p>${esc(limit?'YouTube rejected the upload because the channel reached its daily upload limit. Try again in 24 hours; reconnecting will not reset the limit.':[...new Set(errors)].join(' · '))}</p><button class="button secondary small" data-upload-progress="${esc(job.id)}">View upload results</button></div>`;
+  }
+  window.ClipmaxWorkflow = { html, activity, uploadProgress, uploadFailure };
 })();

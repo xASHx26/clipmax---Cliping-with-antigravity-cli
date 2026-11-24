@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { validateSource, importWindow, run, parseVtt, validateClips, clipSrt, renderArgs } from './lib/core.mjs';
 import { analyze } from './lib/ai.mjs';
 import { generateMetadata, cleanStreamerName, streamerNameFor, creditStreamer } from './lib/metadata.mjs';
-import { publish, platforms, connectionStatus } from './lib/publish.mjs';
+import { publish, platforms, connectionStatus, rejectedPublication } from './lib/publish.mjs';
 import { Connections } from './lib/connections.mjs';
 import { transcribe } from './lib/transcribe.mjs';
 import { AppMcp } from './lib/mcp.mjs';
@@ -262,7 +262,10 @@ async function startPublishing(job, clips, targets, options, automatic = false) 
     if (automatic && targets.some(platform => !connections.summary().accounts.some(account => account.id === job.autoUpload.accountIds[platform] && account.platform === platform && account.active && account.mode !== 'browser'))) throw new Error('An auto-upload account changed. Review your clips and publish manually.');
     if (targets.some(p => !connectionStatus(publishConfig)[p])) throw new Error('Add a verified automatic connection for every selected platform. Instagram Login mode also needs a public media URL; Facebook Login mode supports direct file upload.');
     if (automatic) job.autoUpload.state = 'uploading';
-    for (const clip of clips) for (const platform of targets) if (!clip.publications[platform]) updateStage(job, `upload:${platform}`, { state: 'pending', percent: null, message: 'Waiting for upload slot' }, clip.id);
+    for (const clip of clips) for (const platform of targets) {
+      if(rejectedPublication(clip.publications[platform]))delete clip.publications[platform];
+      if (!clip.publications[platform]) updateStage(job, `upload:${platform}`, { state: 'pending', percent: null, bytes:0, totalBytes:null, message: 'Waiting for upload slot' }, clip.id);
+    }
     await save(job);
   } catch (error) { job.publishing = false; await save(job); throw error; }
   (async () => {
@@ -276,8 +279,8 @@ async function startPublishing(job, clips, targets, options, automatic = false) 
           const result=clip.publications[platform];
           await stage(job, `upload:${platform}`, { state: result.status==='failed'?'failed':result.status==='action_required'?'waiting':'done', message: result.status==='failed'?result.error:result.status==='action_required'?'Finish posting on the platform':result.status==='published'?'Published':'Upload accepted · platform may still process' }, clip.id);
         } catch (error) {
-          clip.publications[platform] = { status: 'unknown', error: sanitize(error.message), at: new Date().toISOString() };
-          await stage(job, `upload:${platform}`, { state: 'failed', message: 'Outcome unknown · check platform' }, clip.id);
+          clip.publications[platform] = { status: error.uploadRejected?'failed':'unknown', error: sanitize(error.message), ...(error.reason?{reason:error.reason}:{}), at: new Date().toISOString() };
+          await stage(job, `upload:${platform}`, { state: 'failed', message: error.uploadRejected?'Platform rejected upload':'Outcome unknown · check platform' }, clip.id);
         }
         await save(job);
       }

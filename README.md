@@ -5,7 +5,7 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.12.1-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.12.2-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
@@ -108,7 +108,7 @@ npm.cmd test
 npm.cmd run build:app
 ```
 
-The output is **`release/Clipmax-Studio-0.12.1-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
+The output is **`release/Clipmax-Studio-0.12.2-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
 
 To update a source checkout later, finish or cancel running projects, close Clipmax, run `git pull`, then repeat `npm.cmd ci`, `npm.cmd run setup`, tests and build. Keep the app's existing application-data folder to retain projects and connections.
 
@@ -218,6 +218,8 @@ Reference videos supplied for this update: [Jack reaction edit](https://www.yout
 ## Preview, then publish
 
 Use **Watch clip** in Clip studio or Project tree to see the final video with its audio and captions. Manual review is the default.
+
+After **Publish selected**, a live panel shows preparation, measured progress for each clip/platform, accepted uploads, and persistent failure reasons. Reopen it with **Upload progress** on the project. Accepted uploads can still be processing on the platform. YouTube's `uploadLimitExceeded` is a channel upload limit; [YouTube recommends trying again in 24 hours](https://support.google.com/youtube/answer/10383400). A new manual publish request can retry confirmed rejections, while successful or ambiguous uploads stay protected from duplicate posting.
 
 **Auto-upload after export** is optional for new projects. It requires consent and verified API accounts for every selected destination. A changed account, unconfirmed story ending, or uncertain interrupted upload blocks automatic posting.
 

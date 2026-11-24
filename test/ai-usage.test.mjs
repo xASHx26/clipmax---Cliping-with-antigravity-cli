@@ -24,3 +24,10 @@ test('profile quota history marks stale data and never claims automatic account 
  const dir=await mkdtemp(join(tmpdir(),'clipmax-usage-'));
  try{const value=usage.normalizeUsage({email:'creator@example.com',quota:{gemini:{remaining_fraction:.1}}},1000000);await writeFile(join(dir,'a'.repeat(64)+'.json'),JSON.stringify(value));const profile=await usage.readUsageStore(dir,2000000);assert.equal(profile.accounts[0].stale,true);assert.equal(profile.accounts[0].lowQuota,true);assert.equal(profile.automaticSwitchSupported,false);assert.equal(profile.lastObservedAccount,'creator@example.com');}finally{await rm(dir,{recursive:true,force:true});}
 });
+test('Windows CLI shell can run the quota collector with spaces and apostrophes in paths',{skip:process.platform!=='win32'},async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"clipmax quota ' shell-"));
+ try{const settings=usage.captureSettings(dir);assert.equal(settings.statusLine.enabled,true);assert.ok(!settings.statusLine.command.includes('"'));
+ await run('cmd.exe',['/c',settings.statusLine.command],{input:JSON.stringify({email:'creator@example.com',quota:{gemini:{remaining_fraction:.42}}}),timeout:10000});
+ const profile=await usage.readUsageStore(dir);assert.equal(profile.accounts[0].quota.gemini.remaining_fraction,.42);
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
