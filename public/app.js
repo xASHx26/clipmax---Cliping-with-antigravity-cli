@@ -1,7 +1,8 @@
 const $ = id => document.getElementById(id);
 let jobs = [], status = { connections: {}, accounts: { accounts: [], oauthReady: {} } }, filter = 'all', editing, publishing;
 const selections = new Map();
-const labels = { youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram' };
+const labels = { youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram', linkedin:'LinkedIn', x:'X', threads:'Threads', bluesky:'Bluesky' };
+const directPlatforms=['youtube','tiktok','facebook','instagram'];
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const working = job => ['queued', 'importing', 'transcribing', 'analyzing', 'rendering'].includes(job.status);
 function notify(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(notify.timer); notify.timer = setTimeout(() => $('toast').hidden = true, 7000); }
@@ -56,7 +57,7 @@ function renderAutoTargets() {
   const selected = new Set([...document.querySelectorAll('[name=auto-platform]:checked')].map(input => input.value));
   $('auto-upload-targets').innerHTML = Object.entries(labels).map(([platform, name]) => {
     const account = status.accounts?.accounts?.find(a => a.platform === platform && a.active);
-    const ready = account && account.mode !== 'browser' && status.connections[platform];
+    const ready = account && !account.needsReconnect && account.mode !== 'browser' && status.connections[platform];
     return `<label><input type="checkbox" name="auto-platform" value="${platform}" ${ready ? '' : 'disabled'} ${ready && selected.has(platform) ? 'checked' : ''}><span>${name}<small>${escape(ready ? account.name : account?.mode === 'browser' ? 'Manual browser posting' : 'Connect API account')}</small></span></label>`;
   }).join('');
 }
@@ -94,7 +95,7 @@ function render() {
   if (!visible.length) { renderProjectTree(); element.innerHTML = `<div class="empty-state"><span class="empty-icon">▥</span><h3>${jobs.length ? 'Nothing here just yet.' : 'Every great clip starts somewhere.'}</h3><p>${jobs.length ? 'Choose another filter to see your projects.' : 'Paste your first video link above. We’ll help you find the moments that deserve a bigger audience.'}</p><button class="button secondary small" id="first-project">Create your first clips</button></div>`; return; }
   const steps = ['queued', 'importing', 'transcribing', 'analyzing', 'rendering'];
   const descriptions = { queued: 'Waiting in the local processing queue…', importing: 'Importing your video and source captions…', transcribing: 'Generating AI speech captions on this computer…', analyzing: 'Looking for strong hooks and self-contained moments…', rendering: 'Reframing your clips and preparing the final edits…' };
-  element.innerHTML = visible.map(job => `<article class="project"><div class="project-top"><div><h3 class="project-title">${escape(job.title)}</h3><div class="project-meta">${new Date(job.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} &nbsp;·&nbsp; ${job.provider === 'antigravity' ? 'Antigravity' : 'Gemini API'} &nbsp;·&nbsp; ${job.duration ? `${time(job.duration)} source` : 'Video import'}</div><p class="project-source-url">${escape(job.url)}</p></div><div class="project-controls"><button class="button secondary small" data-tree="${job.id}">Project tree</button>${job.status === 'ready' && !job.clips.some(c=>Object.keys(c.publications || {}).length) ? `<button class="button secondary small" data-refine="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>Improve story & mix</button>` : ''}<button class="button secondary small delete-project" data-delete="${job.id}" ${working(job) || job.publishing || job.editing ? 'disabled title="Finish the active task before deleting"' : ''}>Delete</button><span class="status ${job.status === 'failed' ? 'failed' : working(job) ? 'working' : ''}">${job.publishing ? 'Publishing' : job.editing ? 'Saving edit' : job.status === 'ready' ? 'Ready to share' : escape(job.status)}</span></div></div><div class="project-body">${working(job) ? `<p class="working-copy">${descriptions[job.status]}</p>` : job.status === 'failed' ? `<p class="error">${escape(job.error)}</p><button class="button secondary small" data-retry="${job.id}">Retry with AI captions</button>` : `<div class="clips">${job.clips.map(c => clipHtml(job, c)).join('')}</div>`}</div>${job.notice ? `<p class="notice">${escape(job.notice)}</p>` : ''}${job.framingNotice ? `<p class="notice">${escape(job.framingNotice)}</p>` : ''}${job.autoUpload?.enabled ? `<p class="auto-upload-status">${escape(autoUploadLabel(job.autoUpload))}</p>` : ''}${job.status === 'ready' ? `<div class="project-bottom"><p>${job.clips.length} clips · Download or publish your selected edits.</p><button class="button primary small" data-publish="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>◎ &nbsp; Publish selected</button></div>` : ''}</article>`).join('');
+  element.innerHTML = visible.map(job => `<article class="project"><div class="project-top"><div><h3 class="project-title">${escape(job.title)}</h3><div class="project-meta">${new Date(job.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} &nbsp;·&nbsp; ${job.provider === 'antigravity' ? 'Antigravity' : 'Gemini API'} &nbsp;·&nbsp; ${job.duration ? `${time(job.duration)} source` : 'Video import'}</div><p class="project-source-url">${escape(job.url)}</p></div><div class="project-controls"><button class="button secondary small" data-tree="${job.id}">Project tree</button>${job.status === 'ready' && !job.clips.some(c=>Object.keys(c.publications || {}).length) ? `<button class="button secondary small" data-refine="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>Improve story & mix</button>` : ''}<button class="button secondary small delete-project" data-delete="${job.id}" ${working(job) || job.publishing || job.editing ? 'disabled title="Finish the active task before deleting"' : ''}>Delete</button><span class="status ${job.status === 'failed' ? 'failed' : working(job) ? 'working' : ''}">${job.publishing ? 'Publishing' : job.editing ? 'Saving edit' : job.status === 'ready' ? 'Ready to share' : escape(job.status)}</span></div></div><div class="project-body">${working(job) ? `<p class="working-copy">${descriptions[job.status]}</p>` : job.status === 'failed' ? `<p class="error">${escape(job.error)}</p><button class="button secondary small" data-retry="${job.id}">Retry with AI captions</button>` : `<div class="clips">${job.clips.map(c => clipHtml(job, c)).join('')}</div>`}</div>${job.notice ? `<p class="notice">${escape(job.notice)}</p>` : ''}${job.framingNotice ? `<p class="notice">${escape(job.framingNotice)}</p>` : ''}${job.autoUpload?.enabled ? `<p class="auto-upload-status">${escape(autoUploadLabel(job.autoUpload))}</p>` : ''}${job.status === 'ready' ? `<div class="project-bottom">${job.clips.some(c=>Object.values(c.publications||{}).some(r=>r.provider==='upload-post'&&r.status==='processing'))?`<button class="button secondary small" data-check-posts="${job.id}">↻ Check upload status</button>`:''}<p>${job.clips.length} clips · Download or publish your selected edits.</p><button class="button primary small" data-publish="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>◎ &nbsp; Publish selected</button></div>` : ''}</article>`).join('');
   renderProjectTree();
 }
 let treeProjectId = null, treeScale = 'large', lastDeleted = null;
@@ -137,8 +138,9 @@ async function loadStatus() {
   const count = status.accounts?.accounts?.length || Object.values(status.connections).filter(Boolean).length;
   $('connection-count').textContent = count;
   const accounts = status.accounts?.accounts || [];
-  $('connection-list').innerHTML = accounts.length ? accounts.map(a => `<div class="connection account-row"><div><strong>${escape(a.name)}</strong><small>${labels[a.platform]} · ${a.mode === 'browser' ? 'Browser publishing · ' : 'Verified API · '}${a.expired ? 'Refresh needed' : a.active ? 'Active account' : 'Saved account'}</small></div><div>${!a.active ? `<button class="button secondary small" data-activate="${a.id}">Use account</button>` : '<span class="account-active">Active</span>'}<button class="icon-button" data-remove="${a.id}" aria-label="Remove ${escape(a.name)} connection">×</button></div></div>`).join('') : '<div class="connections-empty"><span>◎</span><h3>Bring your channels together.</h3><p>Add an account to publish clips from this workspace.</p></div>';
-  $('vault-status').textContent = status.accounts?.persistent ? 'Connections are saved locally with Windows-protected encryption. No restart needed.' : 'Source preview: connections last for this session. Use the desktop app to save them securely.';
+  $('connection-list').innerHTML = accounts.length ? accounts.map(a => `<div class="connection account-row"><div><strong>${escape(a.name)}</strong><small>${labels[a.platform]} · ${a.mode === 'browser' ? 'Manual browser · ' : a.mode==='managed'?'Automatic · Upload-Post · ':'Direct API · '}${a.expired ? 'Refresh needed' : a.active ? 'Active account' : 'Saved account'}</small></div><div>${a.needsReconnect?'<span>Reconnect needed</span>':!a.active ? `<button class="button secondary small" data-activate="${a.id}">Use account</button>` : '<span class="account-active">Active</span>'}<button class="icon-button" data-remove="${a.id}" aria-label="Remove ${escape(a.name)} connection">×</button></div></div>`).join('') : '<div class="connections-empty"><span>◎</span><h3>Bring your channels together.</h3><p>Add an account to publish clips from this workspace.</p></div>';
+  $('vault-status').textContent = status.accounts?.persistent ? 'Connection keys are saved in your encrypted local vault. Managed social authorizations are held by Upload-Post.' : 'Connections last for this session. Use the desktop app or a persistent container vault to save keys securely.';
+  renderPublisher();
   renderAutoTargets();
   $('gemini-status').textContent = status.geminiConfigured ? 'A Gemini API key is saved. Leave the field blank to keep it.' : 'No Gemini API key saved. Antigravity caption analysis is available.';
   $('dependency-notice').hidden = status.downloader;
@@ -158,26 +160,56 @@ async function showConnections() { try { await loadStatus(); if (!$('connections
 $('connections-nav').addEventListener('click', showConnections);
 window.clipmaxDesktop?.onConnections(showConnections);
 function connectionFields() {
-  const p = $('connection-platform').value, oauth = ['youtube', 'tiktok'].includes(p), browser = $('connection-method').value === 'browser';
+  const p = $('connection-platform').value, oauth = ['youtube', 'tiktok'].includes(p), browser = $('connection-method').value === 'browser', managed=$('connection-method').value==='managed';
   $('connection-methods').hidden = false;
   $('connection-method').querySelector('[value=oauth]').disabled = !oauth;
-  if (!oauth && $('connection-method').value === 'oauth') $('connection-method').value = 'browser';
+  $('connection-method').querySelector('[value=browser]').disabled=!directPlatforms.includes(p);
+  $('connection-method').querySelector('[value=token]').disabled=!directPlatforms.includes(p);
+  if ((!oauth && $('connection-method').value === 'oauth')||(!directPlatforms.includes(p)&&['browser','token'].includes($('connection-method').value))) {$('connection-method').value='managed';return connectionFields();}
   const signIn = oauth && $('connection-method').value === 'oauth';
-  $('browser-fields').hidden = !browser; $('oauth-fields').hidden = !signIn; $('token-fields').hidden = signIn || browser;
-  $('page-id-field').hidden = p !== 'facebook'; $('media-url-field').hidden = p !== 'instagram';
+  $('browser-fields').hidden = !browser; $('oauth-fields').hidden = !signIn; $('token-fields').hidden = signIn || browser || managed; $('managed-fields').hidden=!managed;
+  $('google-client-file-field').hidden=p!=='youtube'; $('instagram-login-field').hidden=p!=='instagram';const metaUpload=p==='instagram'&&$('instagram-login').value==='facebook';$('page-id-field').hidden=p!=='facebook'&&!metaUpload;$('connection-id-label').textContent=metaUpload?'Instagram professional account ID':'Facebook Page ID';$('media-url-field').hidden=p!=='instagram'||metaUpload;
   $('oauth-help').textContent = p === 'youtube' ? 'Sign in on Google’s official website and choose your YouTube channel. A registered Google Desktop OAuth client is required once; Clipmax cannot create platform credentials for you.' : 'Sign in on TikTok’s official website. Your registered desktop app needs Login Kit and approved video.publish access. Unaudited clients publish privately.';
   $('oauth-redirect').textContent = p === 'tiktok' ? 'Register http://127.0.0.1:*/oauth/callback/tiktok in your TikTok desktop Login Kit redirect URLs.' : 'Use a Google OAuth client with application type Desktop app. The local callback is handled automatically.';
-  $('token-help').textContent = p === 'facebook' ? 'Use a Facebook Page access token with Page publishing permission. Personal profiles are not supported.' : p === 'instagram' ? 'Use an Instagram Login token with professional-account publishing permissions. Instagram also needs your exported video on a public HTTPS media host.' : p === 'youtube' ? 'Use a token with youtube.upload and youtube.readonly permissions so Clipmax can verify the channel.' : 'Use a token with approved video.publish permission. Clipmax checks the authorized creator before saving.';
+  $('token-help').textContent = p === 'facebook' ? 'Use a Facebook Page access token with Page publishing permission. Personal profiles are not supported.' : p === 'instagram' ? 'For direct file uploads, use a Meta Page token with Instagram publishing permissions and the linked professional account ID. Instagram Login instead requires publicly hosted exports.' : p === 'youtube' ? 'Use a token with youtube.upload and youtube.readonly permissions so Clipmax can verify the channel.' : 'Use a token with approved video.publish permission. Clipmax checks the authorized creator before saving.';
   $('oauth-app-details').open = !status.accounts?.oauthReady?.[p];
-  $('connect-submit').textContent = browser ? ($('browser-signin-confirmed').checked ? 'Save browser connection' : 'Continue to sign in') : signIn ? 'Continue to sign in' : 'Verify & add connection';
+  $('connect-submit').textContent = managed?'Open account sign-in':browser ? ($('browser-signin-confirmed').checked ? 'Save browser connection' : 'Continue to sign in') : signIn ? 'Continue to sign in' : 'Verify & add connection';
   $('connection-error').hidden = true; $('connection-progress').textContent = '';
 }
+function renderPublisher(){
+  const p=status.publisher||{},selected=$('publisher-profile').value;
+  $('publisher-state').textContent=p.configured?`Provider key verified${p.plan?' · '+p.plan+' plan':''}. Select your publishing profile.`:'Add your provider API key once, then connect your channels in the browser.';
+  $('publisher-profile').innerHTML=(p.profiles||[]).map(profile=>`<option value="${escape(profile.username)}">${escape(profile.name)} · ${escape(profile.username)}</option>`).join('');
+  if((p.profiles||[]).some(profile=>profile.username===selected))$('publisher-profile').value=selected;
+}
+async function openPublisherPage(url){if(window.clipmaxDesktop)await window.clipmaxDesktop.openAuth(url);else window.open(url,'_blank','noopener');}
+async function publisherAction(action){
+  $('connection-error').hidden=true;
+  try{await action()}catch(error){$('connection-error').textContent=error.message;$('connection-error').hidden=false;}
+}
+async function savePublisherKey(){
+  const apiKey=$('publisher-key').value.trim();if(!apiKey)throw new Error('Enter your Upload-Post API key.');
+  await api('/api/publisher/configure','POST',{apiKey});$('publisher-key').value='';await loadStatus();renderPublisher();
+}
+$('publisher-save').addEventListener('click',()=>publisherAction(savePublisherKey));
+$('publisher-create-profile').addEventListener('click',()=>publisherAction(async()=>{
+  if($('publisher-key').value.trim())await savePublisherKey();
+  const username=$('publisher-new-profile').value.trim();await api('/api/publisher/profile','POST',{username,name:'Clipmax workspace'});await loadStatus();$('publisher-profile').value=username;
+}));
+$('publisher-sync').addEventListener('click',()=>publisherAction(async()=>{
+  await api('/api/publisher/sync','POST',{profile:$('publisher-profile').value});await loadStatus();
+  $('add-connection-dialog').close();await showConnections();notify('Connected accounts verified. Choose these accounts under Auto-upload after export.');
+}));
+$('publisher-dashboard').addEventListener('click',()=>publisherAction(()=>openPublisherPage('https://app.upload-post.com/')));
+$('publisher-key-page').addEventListener('click',()=>publisherAction(()=>openPublisherPage('https://app.upload-post.com/api-keys')));
+$('publisher-pricing').addEventListener('click',()=>publisherAction(()=>openPublisherPage('https://www.upload-post.com/pricing/')));
 async function showAddConnection() {
-  try { await loadStatus(); $('connection-form').reset(); connectionFields(); $('add-connection-dialog').showModal(); } catch (e) { notify(e.message); }
+  try { await loadStatus(); $('connection-form').reset(); renderPublisher(); connectionFields(); $('add-connection-dialog').showModal(); } catch (e) { notify(e.message); }
 }
 for (const id of ['add-connection-button', 'new-connection']) $(id).addEventListener('click', showAddConnection);
-$('connection-platform').addEventListener('change', () => { $('connection-method').value = 'browser'; connectionFields(); });
-$('connection-method').addEventListener('change', connectionFields);
+$('connection-platform').addEventListener('change', () => { const platform=$('connection-platform').value;$('connection-method').value=['youtube','tiktok'].includes(platform)?'oauth':directPlatforms.includes(platform)?'token':'managed';connectionFields(); });
+$('connection-method').addEventListener('change', connectionFields);$('instagram-login').addEventListener('change',connectionFields);
+$('google-client-file').addEventListener('change',()=>publisherAction(async()=>{const file=$('google-client-file').files[0];if(!file)return;if(file.size>65536)throw new Error('Choose the small Google OAuth client JSON file.');const data=JSON.parse(await file.text());if(!data.installed?.client_id)throw new Error('Choose a Google Desktop OAuth client JSON file.');$('oauth-client-id').value=data.installed.client_id;$('oauth-client-secret').value=data.installed.client_secret||'';$('connection-progress').textContent='Desktop OAuth client loaded locally. Continue to Google sign-in.';}));
 $('connection-list').addEventListener('click', async e => {
   const activate = e.target.closest('[data-activate]'), remove = e.target.closest('[data-remove]');
   if (!activate && !remove) return;
@@ -187,7 +219,13 @@ $('connection-form').addEventListener('submit', async e => {
   e.preventDefault(); const button = $('connect-submit'); button.disabled = true; $('connection-error').hidden = true;
   const platform = $('connection-platform').value;
   try {
-    if ($('connection-method').value === 'browser') {
+    if($('connection-method').value==='managed'){
+      if($('publisher-key').value.trim())await savePublisherKey();
+      if(!status.publisher?.configured)throw new Error('Verify your Upload-Post API key first.');
+      const profile=$('publisher-profile').value;if(!profile)throw new Error('Choose or create a publishing profile first.');
+      const result=await api('/api/publisher/connect','POST',{profile});await openPublisherPage(result.url);
+      $('connection-progress').textContent='Finish account sign-in, return here, then select Refresh connected accounts.';return;
+    }else if ($('connection-method').value === 'browser') {
       if (!window.clipmaxDesktop) throw new Error('Open the desktop app to use browser publishing.');
       if (!$('browser-signin-confirmed').checked) { await window.clipmaxDesktop.browserSignIn(platform); $('connection-progress').textContent = 'Sign in in your browser, then check the confirmation above and save this connection.'; return; }
       await api('/api/connections/browser', 'POST', { platform, confirmed: true, name: $('browser-account-name').value.trim() || `${labels[platform]} in browser` });
@@ -206,7 +244,7 @@ $('connection-form').addEventListener('submit', async e => {
       if (!connected) { if ($('add-connection-dialog').open) throw new Error('Sign-in timed out. Try again.'); return; }
     } else {
       $('connection-progress').textContent = 'Checking the authorized account with the platform…';
-      await api('/api/connections', 'POST', { platform, accessToken: $('connection-token').value.trim(), accountId: $('connection-account-id').value.trim(), publicMediaUrl: $('connection-media-url').value.trim() });
+      await api('/api/connections', 'POST', { platform, accessToken: $('connection-token').value.trim(), accountId: $('connection-account-id').value.trim(), publicMediaUrl: $('connection-media-url').value.trim(), instagramLogin:$('instagram-login').value });
     }
     $('connection-form').reset(); $('add-connection-dialog').close(); await showConnections(); notify('Connection saved. Browser connections finish posting in your browser; API accounts publish from the app.');
   } catch (error) { $('connection-error').textContent = error.message; $('connection-error').hidden = false; $('connection-progress').textContent = ''; }
@@ -236,6 +274,7 @@ document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', (
 $('project-list').addEventListener('change', e => { if (e.target.dataset.select) { const selected = selections.get(e.target.dataset.select); if (e.target.checked) selected.add(e.target.value); else selected.delete(e.target.value); } });
 $('project-list').addEventListener('click', e => {
   if (e.target.closest('#first-project')) { $('source-url').focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  const check=e.target.closest('[data-check-posts]');if(check){check.disabled=true;api('/api/jobs/'+check.dataset.checkPosts+'/publication-status','POST',{}).then(refresh).catch(error=>notify(error.message)).finally(()=>check.disabled=false);return;}
   const tree = e.target.closest('[data-tree]');
   if (tree) { treeProjectId = tree.dataset.tree; $('tree-canvas')._lastHtml = ''; showPage('tree'); }
   const refine = e.target.closest('[data-refine]');
@@ -259,7 +298,7 @@ $('project-list').addEventListener('click', e => {
     publishing = { jobId: post.dataset.publish, clipIds: selected };
     $('publish-previews').innerHTML = jobs.find(j => j.id === post.dataset.publish).clips.filter(c => selected.includes(c.id)).map(c => `<article><video src="${escape(c.url)}" controls playsinline preload="metadata"></video><strong>${escape(c.title)}</strong></article>`).join('');
     $('publish-summary').textContent = `${selected.length} selected clip${selected.length === 1 ? '' : 's'}. Choose where to share them.`;
-    $('publish-targets').innerHTML = Object.entries(labels).map(([id, name]) => `<label><input type="checkbox" name="platform" value="${id}" ${status.connections[id] ? '' : 'disabled'}>${name}<small>${status.connections[id] ? (status.accounts?.accounts?.some(a => a.platform === id && a.active && a.mode === 'browser') ? 'Finish in browser' : 'API connected') : 'Setup needed'}</small></label>`).join('');
+    $('publish-targets').innerHTML = Object.entries(labels).map(([id, name]) => `<label><input type="checkbox" name="platform" value="${id}" ${status.connections[id] ? '' : 'disabled'}>${name}<small>${status.connections[id] ? (status.accounts?.accounts?.some(a => a.platform === id && a.active && a.mode === 'browser') ? 'Finish in browser' : 'Automatic upload ready') : 'Connect account'}</small></label>`).join('');
     $('publish-consent').checked = false; $('publish-dialog').showModal();
   }
 });

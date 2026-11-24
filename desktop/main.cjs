@@ -47,7 +47,7 @@ async function start() {
   ipcMain.handle('open-auth', async (event, value) => {
     if (event.sender !== win.webContents || event.senderFrame.url.split('/').slice(0, 3).join('/') !== appUrl) throw new Error('Untrusted sign-in request.');
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password || !(['accounts.google.com', 'www.tiktok.com'].includes(url.hostname) || ['descript.com', 'vidiq.com'].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`)))) throw new Error('Unsupported sign-in address.');
+    if (url.protocol !== 'https:' || url.username || url.password || !(['accounts.google.com', 'www.tiktok.com', 'app.upload-post.com', 'www.upload-post.com'].includes(url.hostname) || ['descript.com', 'vidiq.com'].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`)))) throw new Error('Unsupported sign-in address.');
     await shell.openExternal(url.href);
   });
   const trustedRenderer = event => event.sender === win.webContents && new URL(event.senderFrame.url).origin === appUrl;

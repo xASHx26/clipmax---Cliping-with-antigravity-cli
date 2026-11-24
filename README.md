@@ -5,7 +5,7 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.9.0-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.10.0-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
@@ -114,9 +114,26 @@ Use **Watch clip** in Clip studio or Project tree to see the final video with it
 | **Direct API** | Supported with valid permissions and tokens. | Uses the same backend upload integrations and account settings. |
 | **Account verification** | API tokens are verified; browser connection labels are not verified identities. | Same API verification rules. |
 
-Official publishing APIs still impose platform requirements: YouTube/TikTok OAuth need registered applications; TikTok can require posting approval; Facebook publishes to Pages; Instagram needs a professional account and publicly accessible HTTPS media. Browser sign-in does not grant API publishing permissions. Real-account uploads have not been verified across every platform.
+Official publishing APIs still impose platform requirements: YouTube/TikTok OAuth need registered applications; TikTok can require posting approval; Facebook publishes to Pages; Instagram needs a professional account. Facebook Login for Business connections upload the local video directly; Instagram Login connections need publicly accessible HTTPS media. Browser sign-in does not grant API publishing permissions. Real-account uploads have not been verified across every platform.
 
 Account rotation and automatic Antigravity quota failover are **not implemented**. Clipmax uses the CLI account you explicitly sign into.
+
+## Connect accounts for automatic uploads
+
+Open **+ Add connection**. Direct platform connections are the default and have no extra publishing-service subscription. Platform registration, grants, quotas and review still apply. Sign in and grant publishing access using your own developer application.
+
+- **YouTube:** enable YouTube Data API, create a Desktop OAuth client, and import its downloaded JSON in Clipmax or enter the client ID once. Continue to Google sign-in and select the channel. Refresh tokens are saved in the local encrypted vault.
+- **TikTok:** use a registered Desktop app with Login Kit and approved video.publish access. Continue to TikTok sign-in. Unaudited clients can be restricted to private uploads.
+- **Instagram:** choose Facebook Login for Business for direct local-file uploads; provide the authorized Meta Page token and linked professional Instagram account ID. This mode does not need a public media host. The alternative Instagram Login mode retains its public HTTPS media requirement.
+- **Facebook:** connect a Page access token and its Page ID. Personal-profile publishing is not supported.
+
+For additional networks, **Optional: Upload-Post managed sign-in** supports YouTube, TikTok, Instagram, Facebook, LinkedIn, X, Threads, and Bluesky. Add your provider API key, choose or create a profile, open account sign-in, then refresh connected accounts in Clipmax. The key is encrypted locally; social authorization and published video transfers are handled by Upload-Post. Its [current free plan](https://www.upload-post.com/pricing/) has limited uploads and excludes TikTok. Provider fees and platform requirements apply. Clipmax does not purchase a plan for you.
+
+Enable **Auto-upload after export** on a new project, select named verified accounts, choose visibility, and approve automatic publishing. Original projects remain review-first. Account identity is checked before managed transfers; switched/disconnected accounts stop automatic posting. TikTok privacy settings are never silently changed to public. A stable request key helps the managed service avoid duplicate uploads. Queued uploads remain Processing; use **Check upload status** to fetch the provider result.
+
+No live social account has been authorized or posted to during development. OAuth/token refresh, managed account changes, multipart upload, status handling, privacy and direct Instagram transfers are verified with mocked services; authorize your own accounts to verify production permissions.
+
+References: [Google OAuth for installed apps](https://developers.google.com/identity/protocols/oauth2/native-app), [TikTok Direct Post](https://developers.tiktok.com/doc/content-posting-api-get-started/), [Meta content publishing](https://developers.facebook.com/documentation/instagram-platform/content-publishing), [Upload-Post profiles](https://docs.upload-post.com/api/user-profiles/), [Upload-Post video API](https://docs.upload-post.com/api/upload-video/).
 
 ## Plugins live inside Clipmax
 

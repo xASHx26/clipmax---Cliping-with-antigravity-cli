@@ -19,6 +19,8 @@ import { completeClipEnd } from './lib/context.mjs';
 import { FOCUSES, MOODS, MOMENTS, groundMood, resolveSound, planBatchSound, soundSeed } from './lib/mood.mjs';
 import { effectWave, backgroundWave, EFFECT_LENGTHS, BACKGROUNDS } from './lib/sounds.mjs';
 import { clipAss } from './lib/captions.mjs';
+import { ManagedPublishing, managedStatus } from './lib/managed-publishing.mjs';
+import { PLATFORM_NAMES } from './lib/social-platforms.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url)), dataDir = process.env.CLIPMAX_DATA_DIR || join(root, 'data');
 const port = Number(process.env.PORT || 4310);
@@ -28,6 +30,7 @@ const jobs = new Map();
 await mkdir(dataDir, { recursive: true });
 const connections = new Connections(process.env.CLIPMAX_SETTINGS_DIR || dataDir, process.env.CLIPMAX_VAULT_KEY);
 await connections.load();
+const managed = new ManagedPublishing(connections);
 const mcp = new AppMcp(connections, `http://127.0.0.1:${port}`);
 for (const name of await readdir(dataDir)) {
   if (!/^[a-f0-9-]{36}$/.test(name)) continue;
@@ -194,9 +197,10 @@ async function startPublishing(job, clips, targets, options, automatic = false) 
   job.publishing = true;
   let publishConfig;
   try {
+    await managed.verify(targets,options);
     publishConfig = await connections.readyConfig(targets);
     if (automatic && targets.some(platform => !connections.summary().accounts.some(account => account.id === job.autoUpload.accountIds[platform] && account.platform === platform && account.active && account.mode !== 'browser'))) throw new Error('An auto-upload account changed. Review your clips and publish manually.');
-    if (targets.some(p => !connectionStatus(publishConfig)[p])) throw new Error('Add a verified API connection for every selected platform. Instagram also needs a public media URL.');
+    if (targets.some(p => !connectionStatus(publishConfig)[p])) throw new Error('Add a verified automatic connection for every selected platform. Instagram Login mode also needs a public media URL; Facebook Login mode supports direct file upload.');
     if (automatic) job.autoUpload.state = 'uploading';
     for (const clip of clips) for (const platform of targets) if (!clip.publications[platform]) updateStage(job, `upload:${platform}`, { state: 'pending', percent: null, message: 'Waiting for upload slot' }, clip.id);
     await save(job);
@@ -209,7 +213,8 @@ async function startPublishing(job, clips, targets, options, automatic = false) 
         await stage(job, `upload:${platform}`, { state: 'running', percent: null, message: 'Connecting to platform' }, clip.id);
         try {
           clip.publications[platform] = { ...await publish(platform, job, clip, join(dataDir, job.id, `${clip.id}.mp4`), options, publishConfig, value => progress(job, `upload:${platform}`, { ...value, state: 'running' }, clip.id)), at: new Date().toISOString() };
-          await stage(job, `upload:${platform}`, { state: 'done', message: clip.publications[platform].status === 'published' ? 'Published' : 'Upload accepted · platform may still process' }, clip.id);
+          const result=clip.publications[platform];
+          await stage(job, `upload:${platform}`, { state: result.status==='failed'?'failed':result.status==='action_required'?'waiting':'done', message: result.status==='failed'?result.error:result.status==='action_required'?'Finish posting on the platform':result.status==='published'?'Published':'Upload accepted · platform may still process' }, clip.id);
         } catch (error) {
           clip.publications[platform] = { status: 'unknown', error: sanitize(error.message), at: new Date().toISOString() };
           await stage(job, `upload:${platform}`, { state: 'failed', message: 'Outcome unknown · check platform' }, clip.id);
@@ -301,9 +306,13 @@ const server = http.createServer(async (req, res) => {
       let downloader = true; try { await access(ytdlp); } catch { downloader = Boolean(process.env.YTDLP_PATH); }
       const connected = connectionStatus(connections.config());
       for (const account of connections.summary().accounts) if (account.active && account.mode === 'browser') connected[account.platform] = true;
-      return json(res, 200, { connections: connected, accounts: connections.summary(), downloader, provider: process.env.AI_PROVIDER || 'antigravity', model: process.env.AI_MODEL || '', geminiConfigured: connections.summary().geminiConfigured });
+      return json(res, 200, { connections: connected, accounts: connections.summary(), publisher:managed.summary(), platformNames:PLATFORM_NAMES, downloader, provider: process.env.AI_PROVIDER || 'antigravity', model: process.env.AI_MODEL || '', geminiConfigured: connections.summary().geminiConfigured });
     }
     if (req.method === 'GET' && path === '/api/connections') return json(res, 200, connections.summary());
+    if(req.method==='POST'&&path==='/api/publisher/configure')return json(res,200,await managed.configure(await body(req)));
+    if(req.method==='POST'&&path==='/api/publisher/profile')return json(res,201,await managed.createProfile(await body(req)));
+    if(req.method==='POST'&&path==='/api/publisher/connect')return json(res,200,await managed.connect(await body(req)));
+    if(req.method==='POST'&&path==='/api/publisher/sync')return json(res,200,await managed.sync(await body(req)));
     if (req.method === 'POST' && path === '/api/connections') return json(res, 201, await connections.add(await body(req)));
     if (req.method === 'POST' && path === '/api/connections/browser') return json(res, 201, await connections.addBrowser(await body(req)));
     if (req.method === 'POST' && path === '/api/settings/ai') return json(res, 200, await connections.settings(await body(req)));
@@ -396,6 +405,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, job);
     }
     const post = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/publish$/);
+    const publicationStatus=path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/publication-status$/);
+    if(req.method==='POST'&&publicationStatus){
+      const job=getJob(publicationStatus[1]);if(job.publishing||job.editing)throw new Error('Wait for the current operation to finish.');
+      for(const clip of job.clips||[])for(const [platform,result]of Object.entries(clip.publications||{}))if(result.provider==='upload-post'&&result.requestId&&result.status==='processing'){
+        const next=await managedStatus(platform,result.requestId,managed.key());clip.publications[platform]={...next,at:result.at};updateStage(job,`upload:${platform}`,{state:next.status==='failed'?'failed':next.status==='action_required'?'waiting':'done',message:next.status==='published'?'Published':next.status==='processing'?'Platform still processing':next.error||'Upload accepted'},clip.id);
+      }
+      await save(job);return json(res,200,job);
+    }
     const browserHandoff = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/browser-handoff$/);
     if (req.method === 'POST' && browserHandoff) {
       const job = getJob(browserHandoff[1]), input = await body(req), clip = job.clips.find(c => c.id === input.clipId);

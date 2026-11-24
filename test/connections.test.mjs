@@ -63,6 +63,7 @@ test('TikTok desktop PKCE is hex SHA256 and refresh replaces rotated refresh tok
   let captured;
   const vault = new Connections('.', null, async (url, options) => {
     if (url.endsWith('/token/')) { captured = options.body; return response({ access_token: 'token2', refresh_token: 'rotated', expires_in: 7200 }); }
+    if(url.includes('/user/info/'))return response({data:{user:{open_id:'stable-creator-id'}}});
     return response({ data: { creator_username: 'test', creator_nickname: 'Test Creator' }, error: { code: 'ok' } });
   });
   const begin = await vault.beginOAuth({ platform: 'tiktok', clientId: 'client', clientSecret: 'secret' }, 'http://127.0.0.1:4310');
