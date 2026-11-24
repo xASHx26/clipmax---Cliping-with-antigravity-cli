@@ -14,7 +14,7 @@ import { Connections } from './lib/connections.mjs';
 import { transcribe } from './lib/transcribe.mjs';
 import { AppMcp } from './lib/mcp.mjs';
 import { updateStage, mediaProgress, downloadProgress } from './lib/progress.mjs';
-import { projectBusy, trashProject, restoreProject } from './lib/project-trash.mjs';
+import { projectBusy, restoreProject, deleteProjectPermanently, DeletionConfirmations } from './lib/project-trash.mjs';
 import { autoUploadSettings, maybeAutoUpload, publishOptions } from './lib/auto-publish.mjs';
 import { mediaSettings, probeSource, prepareAudio, hookWave } from './lib/audio.mjs';
 import { detectFraming } from './lib/framing.mjs';
@@ -320,6 +320,7 @@ async function serveFile(req, res, file) {
     createReadStream(file, { start, end }).on('error', () => res.destroy()).pipe(res);
   } else { res.writeHead(200, { ...headers, 'Content-Length': size }); createReadStream(file).on('error', () => res.destroy()).pipe(res); }
 }
+const deletionConfirmations=new DeletionConfirmations();
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
@@ -394,14 +395,21 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && path === '/api/jobs') return json(res, 200, [...jobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
     const deletion = path.match(/^\/api\/jobs\/([a-f0-9-]{36})$/);
+    const deletionStart=path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/delete-confirmation$/);
+    if(req.method==='POST'&&deletionStart){
+      const job=getJob(deletionStart[1]);if(projectBusy(job))throw new Error('Wait for processing, editing or publishing to finish before deleting this project.');
+      const input=await body(req);return json(res,200,{confirmation:deletionConfirmations.begin(job.id,input.confirmed),expiresInSeconds:120});
+    }
     if (req.method === 'DELETE' && deletion) {
       const job = getJob(deletion[1]);
       if (projectBusy(job)) throw new Error('Wait for processing, editing or publishing to finish before deleting this project.');
+      const input=await body(req);if(projectBusy(job))throw new Error('Wait for the active project task to finish before deleting.');
+      deletionConfirmations.consume(job.id,input);
       job.deleting = true;
       try {
         await writes.get(job.id);
-        const undoId = await trashProject(dataDir, job.id); jobs.delete(job.id); writes.delete(job.id);
-        return json(res, 200, { deleted: true, undoId });
+        await deleteProjectPermanently(dataDir, job.id); jobs.delete(job.id); writes.delete(job.id);
+        return json(res, 200, { deleted: true, permanent:true });
       } catch (error) { delete job.deleting; throw error; }
     }
     const restore = path.match(/^\/api\/trash\/([a-f0-9-]{36}--\d{13})\/restore$/);

@@ -32,7 +32,8 @@ try{
  await call('/api/jobs/'+second.id+'/cancel','POST',{});
  await until(async()=>(await call('/api/jobs')).find(j=>j.id===second.id)?.status==='cancelled');
  calls=(await readFile(marker,'utf8')).trim().split(/\r?\n/);for(const value of calls)assert.throws(()=>process.kill(Number(value.split('|')[1]),0));
- const deleted=await call('/api/jobs/'+first.id,'DELETE',{});assert.ok(deleted.undoId);
+ const challenge=await call('/api/jobs/'+first.id+'/delete-confirmation','POST',{confirmed:true});
+ const deleted=await call('/api/jobs/'+first.id,'DELETE',{confirmation:challenge.confirmation,confirmationText:'DELETE'});assert.equal(deleted.permanent,true);
  const pendingMetadata=fetch(base+'/api/jobs/'+readyId+'/metadata',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(async response=>({status:response.status,value:await response.json()}));
  await until(async()=>(await readFile(marker,'utf8')).includes(readyId));
  await call('/api/jobs/'+readyId+'/cancel','POST',{});

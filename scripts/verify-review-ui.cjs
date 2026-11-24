@@ -13,7 +13,10 @@ const accounts = [{ id: 'youtube-api', platform: 'youtube', name: 'Test channel'
 const status = { accounts: { accounts, oauthReady: {} }, connections: { youtube: true, tiktok: true }, downloader: true };
 let lastCreate,lastEdit,lastMetadata;
 let pluginState='reconnecting';
+let deleteCount=0,deleted=false;
 const server = createServer(async (req, res) => {
+  if(req.method==='POST'&&req.url.endsWith('/delete-confirmation')){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({confirmation:'a'.repeat(64)}));}
+  if(req.method==='DELETE'&&req.url==='/api/jobs/'+job.id){let body='';for await(const part of req)body+=part;const input=JSON.parse(body);assert.equal(input.confirmation,'a'.repeat(64));assert.equal(input.confirmationText,'DELETE');deleteCount++;deleted=true;res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({deleted:true,permanent:true}));}
   if(req.method==='POST'&&req.url.endsWith('/publish')){for await(const part of req){}job.publishing=true;job.workflow.stages.metadata={state:'running',percent:null,message:'Preparing AI copy'};await new Promise(resolve=>setTimeout(resolve,800));job.workflow.stages.metadata.state='done';job.workflow.clips['clip-1']={'upload:youtube':{state:'running',percent:37,bytes:370000,totalBytes:1000000,message:'Sending video bytes'}};res.writeHead(202,{'Content-Type':'application/json'});return res.end(JSON.stringify(job));}
   if(req.url==='/api/mcp'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify([{id:'descript',name:'Descript',description:'Test editing plugin',saved:true,connected:pluginState==='connected',status:pluginState}]));}
   if(req.url==='/api/mcp/descript/tools'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify([{name:'read_project',description:'Test tool',inputSchema:{type:'object',properties:{project_id:{type:'string'}},required:['project_id']}}]));}
@@ -24,7 +27,7 @@ const server = createServer(async (req, res) => {
   if(req.method==='PATCH' && req.url.includes('/clips/')){let body='';for await(const chunk of req)body+=chunk;lastEdit=JSON.parse(body);res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(job));}
   if (req.url === '/api/jobs') {
     if (req.method === 'POST') { let body = ''; for await (const chunk of req) body += chunk; lastCreate = JSON.parse(body); }
-    res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(req.method === 'POST' ? job : [job]));
+    res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(req.method === 'POST' ? job : deleted?[]:[job]));
   }
   const files = { '/': 'public/index.html', '/app.js': 'public/app.js', '/workflow.js': 'public/workflow.js', '/style.css': 'public/style.css', '/workflow.css': 'public/workflow.css', '/sample.mp4': 'data/verification/clip-1.mp4' };
   const file = files[req.url]; if (!file) { res.writeHead(404); return res.end(); }
@@ -135,6 +138,19 @@ app.whenReady().then(async () => {
     writeFileSync(join(root,'data/review-ui-verification/publish-selected-failure.png'),(await win.webContents.capturePage()).toPNG());
     await win.webContents.executeJavaScript(`document.getElementById('upload-progress-dialog').close();document.querySelector('[data-upload-progress]').click()`);
     assert.equal(await win.webContents.executeJavaScript(`document.getElementById('upload-progress-dialog').open`),true);
+    await win.webContents.executeJavaScript(`document.getElementById('upload-progress-dialog').close();document.querySelector('[data-delete]').click()`);
+    assert.equal(await win.webContents.executeJavaScript(`document.getElementById('delete-project-dialog').open`),true);assert.equal(deleteCount,0);
+    await win.webContents.executeJavaScript(`document.querySelector('#delete-step-one .close-dialog').click()`);assert.equal(deleteCount,0);
+    await win.webContents.executeJavaScript(`document.querySelector('[data-delete]').click();document.getElementById('delete-continue').click();new Promise((resolve,reject)=>{const stop=setTimeout(()=>reject(Error('Delete confirmation timeout')),3000);const timer=setInterval(()=>{if(!document.getElementById('delete-step-two').hidden){clearTimeout(stop);clearInterval(timer);resolve()}},25)})`);
+    assert.equal(deleteCount,0);assert.equal(await win.webContents.executeJavaScript(`document.getElementById('delete-permanently').disabled`),true);
+    await win.webContents.executeJavaScript(`document.getElementById('delete-confirmation-text').value='wrong';document.getElementById('delete-confirmation-text').dispatchEvent(new Event('input'))`);
+    assert.equal(await win.webContents.executeJavaScript(`document.getElementById('delete-permanently').disabled`),true);
+    await win.webContents.executeJavaScript(`document.querySelector('#delete-step-two .close-dialog').click()`);assert.equal(deleteCount,0);
+    await win.webContents.executeJavaScript(`document.querySelector('[data-delete]').click();document.getElementById('delete-continue').click();new Promise(resolve=>{const timer=setInterval(()=>{if(!document.getElementById('delete-step-two').hidden){clearInterval(timer);resolve()}},25)})`);
+    await win.webContents.executeJavaScript(`document.getElementById('delete-confirmation-text').value='DELETE';document.getElementById('delete-confirmation-text').dispatchEvent(new Event('input'))`);
+    await new Promise(resolve=>setTimeout(resolve,150));writeFileSync(join(root,'data/review-ui-verification/permanent-delete-confirmation.png'),(await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript(`document.getElementById('delete-form').requestSubmit();new Promise((resolve,reject)=>{const stop=setTimeout(()=>reject(Error('Delete completion timeout')),3000);const timer=setInterval(()=>{if(!document.getElementById('delete-project-dialog').open){clearTimeout(stop);clearInterval(timer);resolve()}},25)})`);
+    assert.equal(deleteCount,1);
     assert.deepEqual(errors, []);
     console.log('PASS: Cancel controls, cancelled state, retry/delete availability, real upload progress, indeterminate AI progress, preserved playback, AI publishing fields, vertical tree, playable previews, mood tags/overrides, weird/sad/unexpected focus, automatic sound defaults, opt-in upload and browser-account exclusion.');
   } catch (error) { console.error(error); exitCode = 1; }

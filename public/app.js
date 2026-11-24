@@ -116,7 +116,7 @@ function render() {
   element.innerHTML = visible.map(job => `<article class="project"><div class="project-top"><div><h3 class="project-title">${escape(job.title)}</h3><div class="project-meta">${new Date(job.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} &nbsp;·&nbsp; ${job.provider === 'antigravity' ? 'Antigravity' : 'Gemini API'} &nbsp;·&nbsp; ${job.duration ? `${time(job.duration)} source` : 'Video import'}</div><p class="project-source-url">${escape(job.url)}</p></div><div class="project-controls"><button class="button secondary small" data-tree="${job.id}">Project tree</button>${job.publishing || job.clips.some(clip=>Object.keys(clip.publications||{}).length) ? `<button class="button secondary small" data-upload-progress="${job.id}">Upload progress</button>` : ''}${job.status === 'ready' && !job.clips.some(c=>Object.keys(c.publications || {}).length) ? `<button class="button secondary small" data-refine="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>Improve story & mix</button>` : ''}${job.canCancel && !job.publishing ? `<button class="button secondary small cancel-project" data-cancel="${job.id}" ${job.cancelling ? 'disabled' : ''}>${job.cancelling ? 'Cancelling…' : 'Cancel'}</button>` : ''}<button class="button secondary small delete-project" data-delete="${job.id}" ${working(job) || job.publishing || job.editing || job.cancelling ? 'disabled title="Finish the active task before deleting"' : ''}>Delete</button><span class="status ${job.status === 'failed' ? 'failed' : job.status === 'cancelled' ? 'cancelled' : working(job) ? 'working' : ''}">${job.cancelling ? 'Cancelling…' : job.publishing ? 'Publishing' : job.editing ? 'Saving edit' : job.status === 'ready' ? 'Ready to share' : escape(job.status)}</span></div></div><div data-project-activity="${job.id}">${window.ClipmaxWorkflow.activity(job)}</div><div class="project-body">${window.ClipmaxWorkflow.uploadFailure(job)}${working(job) ? `<p class="working-copy">${job.cancelling ? 'Stopping active processes…' : descriptions[job.status]}</p>` : job.status === 'cancelled' ? `<p class="notice">Processing cancelled. Imported video and completed clips are kept.</p><button class="button secondary small" data-retry="${job.id}">Retry project</button><div class="clips">${job.clips.filter(c=>c.url).map(c=>clipHtml(job,c)).join('')}</div>` : job.status === 'paused' ? `<p class="notice">${escape(job.pauseReason || 'AI quota paused. Your imported video and captions are saved.')}</p><button class="button secondary small" data-retry="${job.id}">Resume AI from saved captions</button>` : job.status === 'failed' ? `<p class="error">${escape(job.error)}</p><button class="button secondary small" data-retry="${job.id}">Retry with AI captions</button>` : `<div class="clips">${job.clips.map(c => clipHtml(job, c)).join('')}</div>`}</div>${job.workflow?.stages?.metadata?.state === 'running' ? '<p class="notice" role="status">Gemini CLI is writing titles, descriptions and tags…</p>' : ''}${job.metadataError ? `<p class="error">${escape(job.metadataError)}</p>` : ''}${job.notice ? `<p class="notice">${escape(job.notice)}</p>` : ''}${job.framingNotice ? `<p class="notice">${escape(job.framingNotice)}</p>` : ''}${job.autoUpload?.enabled ? `<p class="auto-upload-status">${escape(autoUploadLabel(job.autoUpload))}</p>` : ''}${job.status === 'ready' ? `<div class="project-bottom">${job.clips.some(c=>Object.values(c.publications||{}).some(r=>r.provider==='upload-post'&&r.status==='processing'))?`<button class="button secondary small" data-check-posts="${job.id}">↻ Check upload status</button>`:''}<p>${job.clips.length} clips · Download or publish your selected edits.</p><button class="button primary small" data-publish="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>◎ &nbsp; Publish selected</button></div>` : ''}</article>`).join('');
   renderProjectTree();
 }
-let treeProjectId = null, treeScale = 'large', lastDeleted = null;
+let treeProjectId = null, treeScale = 'large', deletingProject;
 function renderProjectTree() {
   const select = $('tree-project');
   const options = jobs.map(job => '<option value="' + job.id + '">' + escape(job.title) + '</option>').join('');
@@ -139,13 +139,27 @@ $('tree-project').addEventListener('change', () => { treeProjectId = $('tree-pro
 $('tree-studio').addEventListener('click', () => showPage('studio'));
 $('tree-zoom-in').addEventListener('click', () => { treeScale = 'extra-large'; $('tree-size').textContent = 'Extra large'; renderProjectTree(); });
 $('tree-zoom-out').addEventListener('click', () => { treeScale = treeScale === 'extra-large' ? 'large' : 'compact'; $('tree-size').textContent = treeScale === 'large' ? 'Large' : 'Compact'; renderProjectTree(); });
-$('dismiss-delete').addEventListener('click', () => $('delete-feedback').hidden = true);
-$('undo-delete').addEventListener('click', async () => {
-  if (!lastDeleted) return;
-  $('undo-delete').disabled = true;
-  try { await api('/api/trash/' + lastDeleted + '/restore', 'POST', {}); lastDeleted = null; $('delete-feedback').hidden = true; await refresh(); notify('Project restored.'); }
-  catch(error) { notify(error.message); } finally { $('undo-delete').disabled = false; }
+$('delete-continue').addEventListener('click',async()=>{
+  const target=deletingProject,button=$('delete-continue');button.disabled=true;$('delete-error').hidden=true;
+  try{const result=await api('/api/jobs/'+target.id+'/delete-confirmation','POST',{confirmed:true});if(deletingProject!==target||!$('delete-project-dialog').open)return;target.confirmation=result.confirmation;$('delete-confirmation-text').value='';$('delete-permanently').disabled=true;$('delete-step-one').hidden=true;$('delete-step-two').hidden=false;$('delete-confirmation-text').focus();}
+  catch(error){$('delete-error').textContent=error.message;$('delete-error').hidden=false;}
+  finally{button.disabled=false;}
 });
+$('delete-confirmation-text').addEventListener('input',()=>{$('delete-permanently').disabled=$('delete-confirmation-text').value!=='DELETE';});
+$('delete-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(!deletingProject?.confirmation||$('delete-confirmation-text').value!=='DELETE')return;
+  const button=$('delete-permanently');button.disabled=true;button.textContent='Deleting files…';$('delete-error').hidden=true;
+  const target=deletingProject;
+  target.inFlight=true;for(const close of $('delete-project-dialog').querySelectorAll('.close-dialog'))close.disabled=true;
+  try{
+    for(const video of document.querySelectorAll('video'))if(video.currentSrc.includes('/media/'+target.id+'/')){video.pause();video.removeAttribute('src');video.load();}
+    await api('/api/jobs/'+target.id,'DELETE',{confirmation:target.confirmation,confirmationText:'DELETE'});
+    selections.delete(target.id);if(uploadWatch?.jobId===target.id)uploadWatch=null;
+    $('delete-project-dialog').close();await refresh();notify('Project permanently deleted, including its imported video and clips.');
+  }catch(error){$('delete-error').textContent=error.message;$('delete-error').hidden=false;target.confirmation=null;$('delete-step-one').hidden=false;$('delete-step-two').hidden=true;$('project-list').dataset.signature='';await refresh().catch(()=>{});}
+  finally{target.inFlight=false;for(const close of $('delete-project-dialog').querySelectorAll('.close-dialog'))close.disabled=false;button.disabled=true;button.textContent='Permanently delete all files';}
+});
+$('delete-project-dialog').addEventListener('cancel',event=>{if(deletingProject?.inFlight)event.preventDefault();});
 async function refresh() {
   jobs = await api('/api/jobs');
   for (const job of jobs) if (!selections.has(job.id) && job.clips.length) selections.set(job.id, new Set(job.clips.map(c => c.id)));
@@ -309,8 +323,10 @@ $('project-list').addEventListener('click', e => {
   if (refine) { refine.disabled=true; api('/api/jobs/'+refine.dataset.refine+'/refine','POST',{media:mediaInputs('create'),focus:$('moment-focus').value}).then(refresh).then(()=>notify('Rebuilding complete stories with audio and streamer-safe framing.')).catch(error=>notify(error.message)).finally(()=>refine.disabled=false); }
   const deletion = e.target.closest('[data-delete]');
   if (deletion) {
-    deletion.disabled = true;
-    api('/api/jobs/' + deletion.dataset.delete, 'DELETE', {}).then(async result => { lastDeleted = result.undoId; selections.delete(deletion.dataset.delete); $('delete-feedback').hidden = false; await refresh(); }).catch(error => notify(error.message)).finally(() => deletion.disabled = false);
+    const job=jobs.find(job=>job.id===deletion.dataset.delete);if(!job)return;
+    deletingProject={id:job.id};$('delete-project-name').textContent=job.title;
+    $('delete-step-one').hidden=false;$('delete-step-two').hidden=true;$('delete-confirmation-text').value='';$('delete-permanently').disabled=true;$('delete-error').hidden=true;
+    $('delete-project-dialog').showModal();return;
   }
   const retry = e.target.closest('[data-retry]');
   if (retry) { retry.disabled = true; api(`/api/jobs/${retry.dataset.retry}/retry`, 'POST', {}).then(refresh).catch(error => notify(error.message)).finally(() => retry.disabled = false); }
