@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, dialog, shell, safeStorage, ipcMain, clipboard } = require('electron');
 const { PLATFORM_PAGES } = require('./browser-publishing.cjs');
-const { fork } = require('node:child_process');
+const { fork, spawn } = require('node:child_process');
+const aiUsage = require('../lib/ai-usage.cjs');
 const { join } = require('node:path');
 const { mkdirSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
 const { randomBytes } = require('node:crypto');
@@ -51,6 +52,15 @@ async function start() {
     await shell.openExternal(url.href);
   });
   const trustedRenderer = event => event.sender === win.webContents && new URL(event.senderFrame.url).origin === appUrl;
+  ipcMain.handle('antigravity-usage', async event => {
+    if(!trustedRenderer(event))throw new Error('Untrusted usage request.');
+    const dir=join(home,'ai-usage');mkdirSync(dir,{recursive:true});
+    const settings=aiUsage.captureSettings(dir);if(!settings)throw new Error('This installation path cannot be used for the usage helper.');
+    const config=join(dir,'session-settings.json'),script=join(dir,'open-usage.ps1');
+    writeFileSync(config,JSON.stringify(settings));writeFileSync(script,readFileSync(join(__dirname,'antigravity-usage.ps1')));
+    const terminal=spawn('powershell.exe',['-NoLogo','-NoProfile','-NoExit','-File',script,'-SettingsFile',config,'-AgyPath',env.AGY_PATH||'agy'],{detached:true,stdio:'ignore',windowsHide:false});
+    await new Promise((resolve,reject)=>{terminal.once('spawn',resolve);terminal.once('error',reject);});terminal.unref();return {opened:true};
+  });
   ipcMain.handle('browser-sign-in', async (event, platform) => {
     if (!trustedRenderer(event) || !PLATFORM_PAGES[platform]) throw new Error('Invalid browser sign-in request.');
     await shell.openExternal(PLATFORM_PAGES[platform].signIn);
@@ -62,7 +72,7 @@ async function start() {
     const clip = job?.clips.find(c => c.id === input.clipId);
     const file = join(dataPath, input.jobId, `${input.clipId}.mp4`);
     if (!clip || !existsSync(file)) throw new Error('Export this clip before opening the browser upload.');
-    clipboard.writeText(`${clip.title}\n\n${clip.caption}`);
+    clipboard.writeText(`${clip.title}\n\n${clip.description ?? clip.caption}`);
     shell.showItemInFolder(file);
     await shell.openExternal(PLATFORM_PAGES[input.platform].upload);
     return { status: 'awaiting_browser', fileName: `${input.clipId}.mp4` };

@@ -1,4 +1,5 @@
 const $ = id => document.getElementById(id);
+let aiProfileLoading=false;
 let jobs = [], status = { connections: {}, accounts: { accounts: [], oauthReady: {} } }, filter = 'all', editing, publishing;
 const selections = new Map();
 const labels = { youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook', instagram: 'Instagram', linkedin:'LinkedIn', x:'X', threads:'Threads', bluesky:'Bluesky' };
@@ -74,7 +75,7 @@ document.addEventListener('click', event => {
   const clip = jobs.find(job => job.id === button.dataset.preview)?.clips.find(clip => clip.id === button.dataset.clip);
   if (!clip?.url) return;
   document.querySelectorAll('video').forEach(video => video.pause());
-  $('preview-title').textContent = clip.title; $('preview-caption').textContent = clip.caption || '';
+  $('preview-title').textContent = clip.title; $('preview-caption').textContent = clip.description ?? clip.caption ?? '';
   $('preview-video').muted = false; $('preview-video').volume = 1; $('preview-video').src = clip.url; $('preview-dialog').showModal();
 });
 document.addEventListener('close', event => event.target.querySelectorAll?.('video').forEach(video => video.pause()), true);
@@ -82,20 +83,26 @@ function clipHtml(job, clip) {
   const chosen = selections.get(job.id)?.has(clip.id) ?? true;
   const browserStates = Object.entries(clip.browserHandoffs || {}).map(([p]) => '<div class="publication">' + labels[p] + ' · Upload opened in browser · Finish posting there</div>').join('');
   const publications = Object.entries(clip.publications || {}).map(([p, result]) => `<div class="publication">${labels[p]} · ${escape(result.status)}${result.url ? ` · <a href="${escape(result.url)}" target="_blank" rel="noopener">View post</a>` : ''}${result.error ? `<br>${escape(result.error)}<br>Check the platform before posting again.` : ''}</div>`).join('');
-  return `<article class="clip"><div class="video-wrap"><video src="${escape(clip.url)}" controls preload="metadata" playsinline></video><label class="clip-select"><input type="checkbox" data-select="${job.id}" value="${clip.id}" ${chosen ? 'checked' : ''}> Select</label></div><div class="clip-content"><div class="clip-heading"><h3>${escape(clip.title)}</h3><span class="score" title="AI editorial estimate, not a prediction of views">✦ ${clip.score}</span></div>${clip.mood ? `<div class="mood-tag">${escape(clip.momentType?.replaceAll('_',' ') || 'moment')} · ${escape(clip.mood)}${clip.moodConfidence<.6?' · review mood':''}</div>` : ''}<div class="clip-time">${time(clip.start)} – ${time(clip.end)} &nbsp;·&nbsp; ${Math.round(clip.end - clip.start)}s &nbsp;·&nbsp; ${escape(job.aspect)}</div><p class="clip-reason">${escape(clip.reason)}</p><div class="clip-actions"><button class="button secondary" data-preview="${job.id}" data-clip="${clip.id}">▷ Watch clip</button><button class="button secondary" data-edit="${job.id}" data-clip="${clip.id}" ${job.editing || job.publishing ? 'disabled' : ''}>Edit clip</button><a class="button secondary" href="${escape(clip.url)}" download="${clip.id}.mp4">Download</a>${clip.subtitles ? `<a class="button secondary" href="${escape(clip.subtitles)}" download="${clip.id}.srt">SRT</a>` : ''}</div>${clip.audio ? `<p class="clip-audio-note">♫ Original audio ${clip.audio.normalized ? 'balanced' : 'included'} · ${escape(clip.audio.background)} background · ${escape(clip.audio.effects)} opening · ${escape(clip.captionStyle||'classic')} captions</p>${clip.audio.decision ? `<p class="sound-reason">${escape(clip.audio.decision)}</p>` : ''}` : ''}${clip.contextReviewNeeded ? '<p class="error">Review the ending: a finished sentence could not be confirmed.</p>' : ''}${publications}${browserStates}</div></article>`;
+  return `<article class="clip"><div class="video-wrap"><video src="${escape(clip.url)}" controls preload="metadata" playsinline></video><label class="clip-select"><input type="checkbox" data-select="${job.id}" value="${clip.id}" ${chosen ? 'checked' : ''}> Select</label></div><div class="clip-content"><div class="clip-heading"><h3>${escape(clip.title)}</h3><span class="score" title="AI editorial estimate, not a prediction of views">✦ ${clip.score}</span></div>${clip.mood ? `<div class="mood-tag">${escape(clip.momentType?.replaceAll('_',' ') || 'moment')} · ${escape(clip.mood)}${clip.moodConfidence<.6?' · review mood':''}</div>` : ''}<div class="clip-time">${time(clip.start)} – ${time(clip.end)} &nbsp;·&nbsp; ${Math.round(clip.end - clip.start)}s &nbsp;·&nbsp; ${escape(job.aspect)}</div><p class="clip-reason">${escape(clip.reason)}</p><div class="clip-actions"><button class="button secondary" data-preview="${job.id}" data-clip="${clip.id}">▷ Watch clip</button><button class="button secondary" data-edit="${job.id}" data-clip="${clip.id}" ${job.editing || job.publishing ? 'disabled' : ''}>Edit clip</button><a class="button secondary" href="${escape(clip.url)}" download="${clip.id}.mp4">Download</a>${clip.subtitles ? `<a class="button secondary" href="${escape(clip.subtitles)}" download="${clip.id}.srt">SRT</a>` : ''}</div>${clip.audio ? `<p class="clip-audio-note">♫ Original audio ${clip.audio.normalized ? 'balanced' : 'included'} · ${escape(clip.audio.background)} background · ${escape(clip.audio.effects)} opening · ${escape(clip.captionStyle||'classic')} captions</p>${clip.audio.decision ? `<p class="sound-reason">${escape(clip.audio.decision)}</p>` : ''}` : ''}${clip.contextReviewNeeded ? '<p class="error">Review the ending: a finished sentence could not be confirmed.</p>' : ''}<details class="clip-publishing-details"><summary>Title, description &amp; tags${clip.publicationMetadata ? ' · AI generated' : ''}</summary><p>${escape(clip.description ?? clip.caption)}</p><p class="clip-tags">${escape((clip.tags || []).join(' · '))}</p><button class="button secondary small" data-metadata="${job.id}" data-clip="${clip.id}" ${job.editing || job.publishing ? 'disabled' : ''}>✦ Generate AI details</button></details>${publications}${browserStates}</div></article>`;
+}
+function renderActivities() {
+  for (const panel of document.querySelectorAll('[data-project-activity]')) {
+    const job=jobs.find(job=>job.id===panel.dataset.projectActivity), content=job ? window.ClipmaxWorkflow.activity(job) : '';
+    if(panel._content!==content){panel.innerHTML=content;panel._content=content;}
+  }
 }
 function render() {
   $('project-count').textContent = jobs.length;
-  const visible = jobs.filter(j => filter === 'all' || (filter === 'ready' ? j.status === 'ready' : working(j)));
+  const visible = jobs.filter(j => filter === 'all' || (filter === 'ready' ? j.status === 'ready' : working(j) || j.status==='paused'));
   const element = $('project-list');
   // Keep video playback and focused inputs intact across background polls.
   const signature = JSON.stringify(visible.map(({ workflow, ...job }) => job));
-  if (element.dataset.signature === signature) { renderProjectTree(); return; }
+  if (element.dataset.signature === signature) { renderActivities(); renderProjectTree(); return; }
   element.dataset.signature = signature;
   if (!visible.length) { renderProjectTree(); element.innerHTML = `<div class="empty-state"><span class="empty-icon">▥</span><h3>${jobs.length ? 'Nothing here just yet.' : 'Every great clip starts somewhere.'}</h3><p>${jobs.length ? 'Choose another filter to see your projects.' : 'Paste your first video link above. We’ll help you find the moments that deserve a bigger audience.'}</p><button class="button secondary small" id="first-project">Create your first clips</button></div>`; return; }
   const steps = ['queued', 'importing', 'transcribing', 'analyzing', 'rendering'];
   const descriptions = { queued: 'Waiting in the local processing queue…', importing: 'Importing your video and source captions…', transcribing: 'Generating AI speech captions on this computer…', analyzing: 'Looking for strong hooks and self-contained moments…', rendering: 'Reframing your clips and preparing the final edits…' };
-  element.innerHTML = visible.map(job => `<article class="project"><div class="project-top"><div><h3 class="project-title">${escape(job.title)}</h3><div class="project-meta">${new Date(job.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} &nbsp;·&nbsp; ${job.provider === 'antigravity' ? 'Antigravity' : 'Gemini API'} &nbsp;·&nbsp; ${job.duration ? `${time(job.duration)} source` : 'Video import'}</div><p class="project-source-url">${escape(job.url)}</p></div><div class="project-controls"><button class="button secondary small" data-tree="${job.id}">Project tree</button>${job.status === 'ready' && !job.clips.some(c=>Object.keys(c.publications || {}).length) ? `<button class="button secondary small" data-refine="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>Improve story & mix</button>` : ''}<button class="button secondary small delete-project" data-delete="${job.id}" ${working(job) || job.publishing || job.editing ? 'disabled title="Finish the active task before deleting"' : ''}>Delete</button><span class="status ${job.status === 'failed' ? 'failed' : working(job) ? 'working' : ''}">${job.publishing ? 'Publishing' : job.editing ? 'Saving edit' : job.status === 'ready' ? 'Ready to share' : escape(job.status)}</span></div></div><div class="project-body">${working(job) ? `<p class="working-copy">${descriptions[job.status]}</p>` : job.status === 'failed' ? `<p class="error">${escape(job.error)}</p><button class="button secondary small" data-retry="${job.id}">Retry with AI captions</button>` : `<div class="clips">${job.clips.map(c => clipHtml(job, c)).join('')}</div>`}</div>${job.notice ? `<p class="notice">${escape(job.notice)}</p>` : ''}${job.framingNotice ? `<p class="notice">${escape(job.framingNotice)}</p>` : ''}${job.autoUpload?.enabled ? `<p class="auto-upload-status">${escape(autoUploadLabel(job.autoUpload))}</p>` : ''}${job.status === 'ready' ? `<div class="project-bottom">${job.clips.some(c=>Object.values(c.publications||{}).some(r=>r.provider==='upload-post'&&r.status==='processing'))?`<button class="button secondary small" data-check-posts="${job.id}">↻ Check upload status</button>`:''}<p>${job.clips.length} clips · Download or publish your selected edits.</p><button class="button primary small" data-publish="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>◎ &nbsp; Publish selected</button></div>` : ''}</article>`).join('');
+  element.innerHTML = visible.map(job => `<article class="project"><div class="project-top"><div><h3 class="project-title">${escape(job.title)}</h3><div class="project-meta">${new Date(job.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} &nbsp;·&nbsp; ${job.provider === 'antigravity' ? 'Antigravity' : 'Gemini API'} &nbsp;·&nbsp; ${job.duration ? `${time(job.duration)} source` : 'Video import'}</div><p class="project-source-url">${escape(job.url)}</p></div><div class="project-controls"><button class="button secondary small" data-tree="${job.id}">Project tree</button>${job.status === 'ready' && !job.clips.some(c=>Object.keys(c.publications || {}).length) ? `<button class="button secondary small" data-refine="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>Improve story & mix</button>` : ''}${job.canCancel && !job.publishing ? `<button class="button secondary small cancel-project" data-cancel="${job.id}" ${job.cancelling ? 'disabled' : ''}>${job.cancelling ? 'Cancelling…' : 'Cancel'}</button>` : ''}<button class="button secondary small delete-project" data-delete="${job.id}" ${working(job) || job.publishing || job.editing || job.cancelling ? 'disabled title="Finish the active task before deleting"' : ''}>Delete</button><span class="status ${job.status === 'failed' ? 'failed' : job.status === 'cancelled' ? 'cancelled' : working(job) ? 'working' : ''}">${job.cancelling ? 'Cancelling…' : job.publishing ? 'Publishing' : job.editing ? 'Saving edit' : job.status === 'ready' ? 'Ready to share' : escape(job.status)}</span></div></div><div data-project-activity="${job.id}">${window.ClipmaxWorkflow.activity(job)}</div><div class="project-body">${working(job) ? `<p class="working-copy">${job.cancelling ? 'Stopping active processes…' : descriptions[job.status]}</p>` : job.status === 'cancelled' ? `<p class="notice">Processing cancelled. Imported video and completed clips are kept.</p><button class="button secondary small" data-retry="${job.id}">Retry project</button><div class="clips">${job.clips.filter(c=>c.url).map(c=>clipHtml(job,c)).join('')}</div>` : job.status === 'paused' ? `<p class="notice">${escape(job.pauseReason || 'AI quota paused. Your imported video and captions are saved.')}</p><button class="button secondary small" data-retry="${job.id}">Resume AI from saved captions</button>` : job.status === 'failed' ? `<p class="error">${escape(job.error)}</p><button class="button secondary small" data-retry="${job.id}">Retry with AI captions</button>` : `<div class="clips">${job.clips.map(c => clipHtml(job, c)).join('')}</div>`}</div>${job.workflow?.stages?.metadata?.state === 'running' ? '<p class="notice" role="status">Gemini CLI is writing titles, descriptions and tags…</p>' : ''}${job.metadataError ? `<p class="error">${escape(job.metadataError)}</p>` : ''}${job.notice ? `<p class="notice">${escape(job.notice)}</p>` : ''}${job.framingNotice ? `<p class="notice">${escape(job.framingNotice)}</p>` : ''}${job.autoUpload?.enabled ? `<p class="auto-upload-status">${escape(autoUploadLabel(job.autoUpload))}</p>` : ''}${job.status === 'ready' ? `<div class="project-bottom">${job.clips.some(c=>Object.values(c.publications||{}).some(r=>r.provider==='upload-post'&&r.status==='processing'))?`<button class="button secondary small" data-check-posts="${job.id}">↻ Check upload status</button>`:''}<p>${job.clips.length} clips · Download or publish your selected edits.</p><button class="button primary small" data-publish="${job.id}" ${job.publishing || job.editing ? 'disabled' : ''}>◎ &nbsp; Publish selected</button></div>` : ''}</article>`).join('');
   renderProjectTree();
 }
 let treeProjectId = null, treeScale = 'large', lastDeleted = null;
@@ -149,7 +156,7 @@ async function loadStatus() {
 $('create-form').addEventListener('submit', async e => {
   e.preventDefault(); const button = $('create-button'); button.disabled = true;
   try {
-    await api('/api/jobs', 'POST', { url: $('source-url').value.trim(), provider: $('provider').value, model: $('model').value.trim(), count: Number($('count').value), maxSeconds: Number($('length').value), aspect: $('aspect').value, captions: $('captions').checked, scanStart: Number($('scan-start').value) * 60, scanMinutes: Number($('scan-length').value), focus:$('moment-focus').value, autoUpload: autoUploadInput(), media: mediaInputs('create') });
+    await api('/api/jobs', 'POST', { url: $('source-url').value.trim(), provider: $('provider').value, model: $('model').value.trim(), count: Number($('count').value), maxSeconds: Number($('length').value), aspect: $('aspect').value, captions: $('captions').checked, scanStart: Number($('scan-start').value) * 60, scanMinutes: Number($('scan-length').value), streamerName:$('streamer-name').value.trim(), focus:$('moment-focus').value, autoUpload: autoUploadInput(), media: mediaInputs('create') });
     $('source-url').value = ''; filter = 'all'; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
     await refresh(); notify('Project added. Your video is being prepared.');
   } catch (e) { notify(e.message); } finally { button.disabled = false; }
@@ -258,14 +265,17 @@ $('remove-gemini').addEventListener('click', async () => { try { await api('/api
 $('studio-nav').addEventListener('click', () => showPage('studio'));
 $('plugins-nav').addEventListener('click', () => showPage('plugins'));
 $('tree-nav').addEventListener('click', () => showPage('tree'));
-window.addEventListener('hashchange', () => showPage(['#plugins','#tree'].includes(location.hash) ? location.hash.slice(1) : 'studio'));
+$('profile-button').addEventListener('click',()=>showPage('profile'));
+window.addEventListener('hashchange', () => showPage(['#plugins','#tree','#profile'].includes(location.hash) ? location.hash.slice(1) : 'studio'));
 async function showPage(page) {
   const plugins = page === 'plugins';
+  $('profile-page').hidden = page !== 'profile';
   $('studio-page').hidden = page !== 'studio'; $('plugins-page').hidden = !plugins; $('tree-page').hidden = page !== 'tree';
   for (const [id, active] of [['studio-nav', page === 'studio'], ['plugins-nav', plugins], ['tree-nav', page === 'tree']]) { $(id).classList.toggle('active', active); if (active) $(id).setAttribute('aria-current', 'page'); else $(id).removeAttribute('aria-current'); }
-  $('breadcrumb-title').textContent = plugins ? 'Plugins' : page === 'tree' ? 'Project tree' : 'Clip studio';
+  $('breadcrumb-title').textContent = plugins ? 'Plugins' : page === 'tree' ? 'Project tree' : page === 'profile' ? 'AI profile' : 'Clip studio';
   history.replaceState(null, '', '#' + page);
   if (page === 'tree') renderProjectTree();
+  if (page === 'profile') loadAiProfile().catch(error=>{ $('ai-profile-status').textContent=error.message; });
   window.scrollTo({ top: 0 });
   if (plugins) { try { await loadMcp(); } catch (error) { $('mcp-progress').textContent = error.message; } }
 }
@@ -277,6 +287,10 @@ $('project-list').addEventListener('click', e => {
   const check=e.target.closest('[data-check-posts]');if(check){check.disabled=true;api('/api/jobs/'+check.dataset.checkPosts+'/publication-status','POST',{}).then(refresh).catch(error=>notify(error.message)).finally(()=>check.disabled=false);return;}
   const tree = e.target.closest('[data-tree]');
   if (tree) { treeProjectId = tree.dataset.tree; $('tree-canvas')._lastHtml = ''; showPage('tree'); }
+  const metadata = e.target.closest('[data-metadata]');
+  if (metadata) { metadata.disabled=true; notify('Gemini CLI is writing publishing details…'); api('/api/jobs/'+metadata.dataset.metadata+'/metadata','POST',{clipIds:[metadata.dataset.clip]}).then(refresh).then(()=>notify('AI title, description and tags are ready to review.')).catch(error=>notify(error.message)).finally(()=>metadata.disabled=false); }
+  const cancel = e.target.closest('[data-cancel]');
+  if (cancel) { cancel.disabled=true;cancel.textContent='Cancelling…';api('/api/jobs/'+cancel.dataset.cancel+'/cancel','POST',{}).then(refresh).then(()=>notify('Cancellation requested. Waiting for active processes to stop.')).catch(error=>notify(error.message)).finally(()=>cancel.disabled=false); }
   const refine = e.target.closest('[data-refine]');
   if (refine) { refine.disabled=true; api('/api/jobs/'+refine.dataset.refine+'/refine','POST',{media:mediaInputs('create'),focus:$('moment-focus').value}).then(refresh).then(()=>notify('Rebuilding complete stories with audio and streamer-safe framing.')).catch(error=>notify(error.message)).finally(()=>refine.disabled=false); }
   const deletion = e.target.closest('[data-delete]');
@@ -289,30 +303,46 @@ $('project-list').addEventListener('click', e => {
   const edit = e.target.closest('[data-edit]');
   if (edit) {
     const job = jobs.find(j => j.id === edit.dataset.edit), clip = job.clips.find(c => c.id === edit.dataset.clip);
-    editing = { job, clip }; fillMediaInputs(clip.media || job.media || {}); editing.initialMedia = JSON.stringify(mediaInputs('edit'));  $('edit-title').value = clip.title; $('edit-start').value = clip.start; $('edit-end').value = clip.end; $('edit-caption').value = clip.caption; $('edit-dialog').showModal();
+    editing = { job, clip }; fillMediaInputs(clip.media || job.media || {}); editing.initialMedia = JSON.stringify(mediaInputs('edit'));  $('edit-streamer-name').value = job.streamerName || job.sourceCreator?.name || ''; $('edit-title').value = clip.title; $('edit-start').value = clip.start; $('edit-end').value = clip.end; $('edit-caption').value = clip.description ?? clip.caption; $('edit-tags').value = (clip.tags || []).join(', '); $('edit-metadata-state').textContent = clip.publicationMetadata ? 'Generated by ' + clip.publicationMetadata.provider + '. Review and edit before publishing.' : 'Generate a title, description and tags from this clip’s transcript.'; $('edit-dialog').showModal();
   }
   const post = e.target.closest('[data-publish]');
   if (post) {
     const selected = [...(selections.get(post.dataset.publish) || [])];
     if (!selected.length) return notify('Select at least one clip first.');
     publishing = { jobId: post.dataset.publish, clipIds: selected };
-    $('publish-previews').innerHTML = jobs.find(j => j.id === post.dataset.publish).clips.filter(c => selected.includes(c.id)).map(c => `<article><video src="${escape(c.url)}" controls playsinline preload="metadata"></video><strong>${escape(c.title)}</strong></article>`).join('');
+    $('publish-previews').innerHTML = jobs.find(j => j.id === post.dataset.publish).clips.filter(c => selected.includes(c.id)).map(c => `<article><video src="${escape(c.url)}" controls playsinline preload="metadata"></video><strong>${escape(c.title)}</strong><p>${escape(c.description ?? c.caption)}</p><small>${escape((c.tags || []).join(' · '))}</small></article>`).join('');
     $('publish-summary').textContent = `${selected.length} selected clip${selected.length === 1 ? '' : 's'}. Choose where to share them.`;
     $('publish-targets').innerHTML = Object.entries(labels).map(([id, name]) => `<label><input type="checkbox" name="platform" value="${id}" ${status.connections[id] ? '' : 'disabled'}>${name}<small>${status.connections[id] ? (status.accounts?.accounts?.some(a => a.platform === id && a.active && a.mode === 'browser') ? 'Finish in browser' : 'Automatic upload ready') : 'Connect account'}</small></label>`).join('');
     $('publish-consent').checked = false; $('publish-dialog').showModal();
   }
+});
+async function rewriteEditorDetails() {
+  const job=await api('/api/jobs/'+editing.job.id+'/metadata','POST',{clipIds:[editing.clip.id],streamerName:$('edit-streamer-name').value.trim()});
+  const clip=job.clips.find(c=>c.id===editing.clip.id); editing.clip=clip; editing.job=job;
+  $('edit-streamer-name').value=job.streamerName || job.sourceCreator?.name || ''; $('edit-title').value=clip.title; $('edit-caption').value=clip.description; $('edit-tags').value=clip.tags.join(', ');
+  return job;
+}
+$('generate-edit-metadata').addEventListener('click', async () => {
+  if (!editing) return;
+  const button=$('generate-edit-metadata'); button.disabled=true; $('save-edit').disabled=true; $('edit-metadata-state').textContent='Gemini CLI is writing your title, description and tags…';
+  try {
+    await rewriteEditorDetails();
+    $('edit-metadata-state').textContent='Generated by Gemini CLI. Review these details before publishing.'; await refresh();
+  } catch(error) { $('edit-metadata-state').textContent=error.message; }
+  finally { button.disabled=false; $('save-edit').disabled=false; }
 });
 $('refresh-style').addEventListener('click',()=>{editing.refreshStyle=true;$('edit-form').requestSubmit();});
 $('recheck-framing').addEventListener('click',()=>{editing.refreshFraming=true;$('edit-framing').value='auto';$('edit-form').requestSubmit();});
 $('edit-form').addEventListener('submit', async e => {
   e.preventDefault(); $('save-edit').disabled = true; $('save-edit').textContent = 'Saving…';
   try {
+    if ($('edit-streamer-name').value.trim() !== (editing.job.streamerName || editing.job.sourceCreator?.name || '')) { $('save-edit').textContent='Writing AI details…'; await rewriteEditorDetails(); }
     const file = $('edit-music-file').files[0];
     if (file) { const upload = await fetch(`/api/jobs/${editing.job.id}/audio`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file }); if (!upload.ok) throw new Error((await upload.json()).error); $('edit-background').value = 'custom'; }
     const effectFile=$('edit-effect-file').files[0];
     if(effectFile){const upload=await fetch(`/api/jobs/${editing.job.id}/audio/effect`,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:effectFile});if(!upload.ok)throw new Error((await upload.json()).error);$('edit-effects').value='custom';}
     const media = mediaInputs('edit'), changedMedia = Boolean(file) || Boolean(effectFile) || JSON.stringify(media) !== editing.initialMedia;
-    await api(`/api/jobs/${editing.job.id}/clips/${editing.clip.id}`, 'PATCH', { title: $('edit-title').value, caption: $('edit-caption').value, start: Number($('edit-start').value), end: Number($('edit-end').value), refreshFraming:editing.refreshFraming===true, refreshStyle:editing.refreshStyle===true, ...(changedMedia ? {media} : {}), ...($('edit-mood').value!==editing.initialMood?{mood:$('edit-mood').value}:{}) });
+    await api(`/api/jobs/${editing.job.id}/clips/${editing.clip.id}`, 'PATCH', { title: $('edit-title').value, description: $('edit-caption').value, tags: $('edit-tags').value, start: Number($('edit-start').value), end: Number($('edit-end').value), refreshFraming:editing.refreshFraming===true, refreshStyle:editing.refreshStyle===true, ...(changedMedia ? {media} : {}), ...($('edit-mood').value!==editing.initialMood?{mood:$('edit-mood').value}:{}) });
     $('edit-dialog').close(); await refresh(); notify('Clip saved.');
   } catch (e) { notify(e.message); } finally { $('save-edit').disabled = false; $('save-edit').textContent = 'Save clip'; }
 });
@@ -386,7 +416,7 @@ function mcpToolFields() {
   }).join('');
 }
 $('mcp-button').addEventListener('click', () => showPage('plugins'));
-if (['#plugins','#tree'].includes(location.hash)) showPage(location.hash.slice(1));
+if (['#plugins','#tree','#profile'].includes(location.hash)) showPage(location.hash.slice(1));
 $('mcp-service').addEventListener('change', () => loadMcpTools().catch(e => $('mcp-progress').textContent = e.message));
 $('mcp-tool').addEventListener('change', mcpToolFields);
 $('mcp-services').addEventListener('click', async e => {
@@ -444,3 +474,21 @@ $('tree-canvas').addEventListener('pointermove', event => {
 for (const event of ['pointerup','pointercancel','lostpointercapture']) $('tree-canvas').addEventListener(event, () => treeDrag=null);
 
 $('tree-canvas').addEventListener('click', async e => { const button=e.target.closest('[data-tree-retry]');if(!button)return;button.disabled=true;try{await api('/api/jobs/'+button.dataset.treeRetry+'/retry','POST',{});await refresh();notify('Retry started. Completed video import will be reused.');}catch(error){notify(error.message);}finally{button.disabled=false;}});
+
+async function loadAiProfile() {
+  if(aiProfileLoading)return;aiProfileLoading=true;
+  try{
+    const profile=await api('/api/ai/profile'),accounts=profile.accounts || [];
+    $('ai-profile-status').textContent=accounts.length ? accounts.length+' account report'+(accounts.length===1?'':'s')+' · last observed: '+profile.lastObservedAccount : 'No quota report yet. Open Antigravity’s quota panel to connect the usage feed.';
+    const content=accounts.map(account=>{
+      const buckets=Object.entries(account.quota || {});
+      const bars=buckets.map(([name,bucket])=>{const known=typeof bucket.remaining_fraction==='number',percent=known?bucket.remaining_fraction*100:null;
+        return '<div class="quota-bucket"><div><strong>'+escape(name.replaceAll('-',' '))+'</strong><span>'+(bucket.disabled?'Unavailable':known?Math.round(percent)+'% remaining':bucket.remaining_amount!==null?escape(bucket.remaining_amount)+' units remaining':'Balance unavailable')+'</span></div>'+(known?'<progress max="100" value="'+percent+'" aria-label="'+escape(name)+' quota remaining"></progress>':'')+(bucket.reset_time?'<small>Resets '+escape(new Date(bucket.reset_time).toLocaleString())+'</small>':'')+'</div>';}).join('');
+      return '<article class="ai-account-card"><div class="ai-account-heading"><h2>'+escape(account.email)+'</h2><span class="'+(account.stale?'quota-stale':account.lowQuota?'quota-low':'quota-live')+'">'+(account.stale?'Refresh needed':account.lowQuota?'Low quota':'Reported')+'</span></div><p>'+escape(account.plan_tier || 'Plan not reported')+' · '+escape(account.model?.display_name || account.model?.id || 'Model not reported')+'</p>'+(bars || '<p>Antigravity has not reported a quota balance for this account.</p>')+'<small>Reported '+escape(new Date(account.observedAt).toLocaleString())+'</small>'+((account.context_window?.total_input_tokens!==null&&account.context_window?.total_input_tokens!==undefined)?'<p class="muted">This conversation: '+Number(account.context_window.total_input_tokens).toLocaleString()+' input tokens · '+Number(account.context_window.total_output_tokens || 0).toLocaleString()+' output tokens</p>':'')+'</article>';
+    }).join('') || '<div class="connections-empty"><span>◎</span><h3>Your account usage will appear here.</h3><p>Unknown balances stay unknown until Antigravity reports them.</p></div>';
+    const panel=$('ai-profile-accounts');if(panel._content!==content){panel.innerHTML=content;panel._content=content;}
+  }finally{aiProfileLoading=false;}
+}
+$('refresh-ai-profile').addEventListener('click',()=>loadAiProfile().catch(error=>notify(error.message)));
+$('manage-ai-account').addEventListener('click',async()=>{try{if(!window.clipmaxDesktop?.openAntigravityUsage)throw Error('Account management opens from the Windows desktop app.');await window.clipmaxDesktop.openAntigravityUsage();notify('Antigravity opened. Complete sign-in if needed, then use /usage and return here.');}catch(error){notify(error.message);}});
+setInterval(()=>{if(!$('profile-page').hidden)loadAiProfile().catch(()=>{});},5000);

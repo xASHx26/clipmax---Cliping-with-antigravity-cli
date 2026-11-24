@@ -6,14 +6,17 @@ const { resolve, join } = require('node:path');
 const assert = require('node:assert/strict');
 const root = resolve('.');
 const job = JSON.parse(readFileSync(join(root, 'data/progress-verification/completed-job.json')));
-job.id = '11111111-1111-4111-8111-111111111111';
+job.id = '11111111-1111-4111-8111-111111111111'; job.sourceCreator={name:'KaiCenat'};
 job.clips = Array.from({ length: 3 }, (_, index) => ({ ...job.clips[0], id: `clip-${index + 1}`, title: `Review clip ${index + 1}`, url: '/sample.mp4' }));
 job.clips.forEach((clip,index)=>Object.assign(clip,{mood:['awkward','sad','surprised'][index],momentType:['weird','sad','out_of_pocket'][index],moodConfidence:.9,moodReason:'Suggested from this clip’s dialogue',audio:{effects:['record_stop','none','pop'][index],background:['playful','melancholy','playful'][index],normalized:true,decision:'Matched to the suggested mood'}}));
 const accounts = [{ id: 'youtube-api', platform: 'youtube', name: 'Test channel', active: true, mode: 'api' }, { id: 'tiktok-browser', platform: 'tiktok', name: 'Browser creator', active: true, mode: 'browser' }];
 const status = { accounts: { accounts, oauthReady: {} }, connections: { youtube: true, tiktok: true }, downloader: true };
-let lastCreate,lastEdit;
+let lastCreate,lastEdit,lastMetadata;
 const server = createServer(async (req, res) => {
+  if(req.url==='/api/ai/profile'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({lastObservedAccount:'creator@example.com',automaticSwitchSupported:false,accounts:[{email:'creator@example.com',quota:{'gemini-weekly':{remaining_fraction:.36,remaining_amount:null,reset_time:new Date(Date.now()+3600000).toISOString()}},context_window:{total_input_tokens:1200,total_output_tokens:200},model:{display_name:'Gemini test model'},plan_tier:'Test plan',observedAt:new Date().toISOString(),stale:false}]}));}
   if (req.url === '/api/status') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(status)); }
+  if(req.method==='POST' && req.url.endsWith('/cancel')){job.status='cancelled';job.canCancel=false;job.cancelling=false;job.editing=false;for(const entry of Object.values(job.workflow.stages))if(entry.state==='running')entry.state='cancelled';res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(job));}
+  if(req.method==='POST' && req.url.endsWith('/metadata')){let input='';for await(const part of req)input+=part;lastMetadata=JSON.parse(input);job.streamerName=lastMetadata.streamerName;job.clips[0].title='AI generated title';job.clips[0].description='A grounded description #reaction';job.clips[0].tags=['reaction','story'];job.clips[0].publicationMetadata={provider:'Gemini CLI via Antigravity'};res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(job));}
   if(req.method==='PATCH' && req.url.includes('/clips/')){let body='';for await(const chunk of req)body+=chunk;lastEdit=JSON.parse(body);res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(job));}
   if (req.url === '/api/jobs') {
     if (req.method === 'POST') { let body = ''; for await (const chunk of req) body += chunk; lastCreate = JSON.parse(body); }
@@ -59,17 +62,52 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`document.getElementById('publish-dialog').close();document.getElementById('auto-upload').click();document.querySelector('[name=auto-platform][value=youtube]').checked=true;document.getElementById('auto-upload-consent').checked=true;document.getElementById('source-url').value='https://youtu.be/review-test';document.getElementById('create-form').requestSubmit()`);
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.deepEqual(lastCreate.autoUpload.platforms, ['youtube']); assert.equal(lastCreate.autoUpload.enabled, true); assert.equal(lastCreate.autoUpload.consent, true);
-    assert.equal(lastCreate.focus,'weird_sad_unexpected');assert.equal(lastCreate.media.effects,'auto');assert.equal(lastCreate.media.background,'auto');
+    assert.equal(lastCreate.streamerName,'');assert.equal(lastCreate.focus,'weird_sad_unexpected');assert.equal(lastCreate.media.effects,'auto');assert.equal(lastCreate.media.background,'auto');
     assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[name=auto-platform][value=tiktok]').disabled`), true);
     await win.webContents.executeJavaScript(`document.getElementById('auto-upload').click();document.getElementById('source-url').value='https://youtu.be/review-test';document.getElementById('create-form').requestSubmit()`);
     await new Promise(resolve => setTimeout(resolve, 200)); assert.equal(lastCreate.autoUpload.enabled, false);
     await win.webContents.executeJavaScript(`document.querySelector('[data-edit]').click()`);
     assert.equal(await win.webContents.executeJavaScript(`document.getElementById('edit-mood').value`),'awkward');
+    assert.equal(await win.webContents.executeJavaScript(`document.getElementById('edit-streamer-name').value`),'KaiCenat');
+    await win.webContents.executeJavaScript(`document.getElementById('generate-edit-metadata').click();new Promise((resolve,reject)=>{const stop=setTimeout(()=>reject(Error('AI details UI timeout')),3000);const t=setInterval(()=>{if(document.getElementById('edit-title').value==='AI generated title'){clearTimeout(stop);clearInterval(t);resolve()}},25)})`);
+    assert.equal(await win.webContents.executeJavaScript(`document.getElementById('edit-caption').value`),'A grounded description #reaction');
+    assert.equal(await win.webContents.executeJavaScript(`document.getElementById('edit-tags').value`),'reaction, story');assert.equal(lastMetadata.streamerName,'KaiCenat');
+    writeFileSync(join(root,'data/review-ui-verification/ai-publishing-details.png'),(await win.webContents.capturePage()).toPNG());
     const invalid=await win.webContents.executeJavaScript(`[...document.querySelectorAll('#edit-form :invalid')].map(input=>({id:input.id,reason:input.validationMessage}))`);assert.deepEqual(invalid,[]);
     await win.webContents.executeJavaScript(`document.getElementById('edit-mood').value='sad';document.getElementById('edit-form').requestSubmit()`);
-    await new Promise(resolve=>setTimeout(resolve,200));assert.equal(lastEdit.mood,'sad');
+    await new Promise(resolve=>setTimeout(resolve,200));assert.equal(lastEdit.mood,'sad'); assert.equal(lastEdit.description,'A grounded description #reaction');assert.equal(lastEdit.tags,'reaction, story');
+    job.editing=true;job.workflow.stages.metadata={state:'running',percent:null,message:'Gemini CLI is writing publishing details'};
+    await win.webContents.executeJavaScript('refresh()');
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-project-activity] progress').hasAttribute('value')`),false);
+    await win.webContents.executeJavaScript("document.querySelector('[data-project-activity]').scrollIntoView({block:'center'})");
+    await new Promise(resolve=>setTimeout(resolve,400));
+    writeFileSync(join(root,'data/review-ui-verification/ai-work-progress.png'),(await win.webContents.capturePage()).toPNG());
+    job.editing=false;job.publishing=true;job.workflow.stages.metadata.state='done';job.workflow.clips['clip-1']={'upload:youtube':{state:'running',percent:31,bytes:310000,totalBytes:1000000,message:'Sending video bytes'}};
+    await win.webContents.executeJavaScript('refresh()');
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-project-activity] progress').value`),31);
+    await win.webContents.executeJavaScript('window.progressPlaybackElement=document.querySelector(".clip video")');
+    job.workflow.clips['clip-1']['upload:youtube'].percent=64;job.workflow.clips['clip-1']['upload:youtube'].bytes=640000;
+    await win.webContents.executeJavaScript('refresh()');
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-project-activity] progress').value`),64);
+    assert.equal(await win.webContents.executeJavaScript('window.progressPlaybackElement===document.querySelector(".clip video")'),true);
+    await win.webContents.executeJavaScript("document.querySelector('[data-project-activity]').scrollIntoView({block:'center'})");
+    await new Promise(resolve=>setTimeout(resolve,400));
+    writeFileSync(join(root,'data/review-ui-verification/upload-progress.png'),(await win.webContents.capturePage()).toPNG());
+    job.publishing=false;job.status='importing';job.canCancel=true;job.workflow.stages.import={state:'running',percent:42,message:'Downloading source'};
+    await win.webContents.executeJavaScript('refresh()');
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-cancel]').textContent`),'Cancel');
+    await win.webContents.executeJavaScript(`document.querySelector('[data-cancel]').click();new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Cancel UI timeout')),3000);const timer=setInterval(()=>{if(document.querySelector('[data-retry]')?.textContent==='Retry project'){clearTimeout(timeout);clearInterval(timer);resolve();}},25);})`);
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-delete]').disabled`),false);
+    await win.webContents.executeJavaScript(`document.getElementById('tree-nav').click()`);
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('tree-canvas').textContent.includes('Cancelled')`));
+    await new Promise(resolve=>setTimeout(resolve,200));writeFileSync(join(root,'data/review-ui-verification/cancelled-project.png'),(await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript(`document.getElementById('profile-button').click();new Promise((resolve,reject)=>{const stop=setTimeout(()=>reject(Error('Profile UI timeout')),3000);const timer=setInterval(()=>{if(document.querySelector('.quota-bucket progress')){clearTimeout(stop);clearInterval(timer);resolve();}},25);})`);
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.quota-bucket progress').value`),36);
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('profile-page').textContent.includes('creator@example.com')`));
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('profile-page').textContent.includes('Automatic account handoff is unavailable')`));
+    await new Promise(resolve=>setTimeout(resolve,200));writeFileSync(join(root,'data/review-ui-verification/ai-profile.png'),(await win.webContents.capturePage()).toPNG());
     assert.deepEqual(errors, []);
-    console.log('PASS: Vertical tree, playable previews, mood tags/overrides, weird/sad/unexpected focus, automatic sound defaults, opt-in upload and browser-account exclusion.');
+    console.log('PASS: Cancel controls, cancelled state, retry/delete availability, real upload progress, indeterminate AI progress, preserved playback, AI publishing fields, vertical tree, playable previews, mood tags/overrides, weird/sad/unexpected focus, automatic sound defaults, opt-in upload and browser-account exclusion.');
   } catch (error) { console.error(error); exitCode = 1; }
   finally { win?.destroy(); server.close(); app.exit(exitCode); }
 });

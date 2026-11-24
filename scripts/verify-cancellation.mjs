@@ -1,0 +1,44 @@
+// Isolated integration check: no downloads, Gemini requests or platform uploads.
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { run } from '../lib/core.mjs';
+if(process.platform!=='win32')throw Error('This process-tree integration check uses the Windows test compiler.');
+const dir=await mkdtemp(join(tmpdir(),'clipmax-cancel-check-')),shim=join(dir,'downloader.exe'),source=join(dir,'downloader.cs'),marker=join(dir,'calls.txt');
+await writeFile(source,`using System;using System.IO;using System.Threading;using System.Diagnostics;class Fixture{static void Main(string[] args){if(Array.IndexOf(args,"--dump-single-json")>=0){Console.WriteLine("{\\"title\\":\\"Cancellation fixture\\",\\"duration\\":30,\\"subtitles\\":{}}");return;}File.AppendAllText(Environment.GetEnvironmentVariable("CLIPMAX_TEST_MARKER"),Environment.CurrentDirectory+"|"+Process.GetCurrentProcess().Id+Environment.NewLine);while(true){Console.WriteLine("frame=1 time=00:00:01.00 speed=1x");Thread.Sleep(100);}}}`);
+await run('C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe',['/nologo','/target:exe','/out:'+shim,source]);
+const data=join(dir,'projects');await mkdir(data);
+const readyId='11111111-1111-4111-8111-111111111111',readyDir=join(data,readyId);await mkdir(readyDir);
+await writeFile(join(readyDir,'job.json'),JSON.stringify({id:readyId,title:'AI cancellation fixture',status:'ready',provider:'antigravity',createdAt:new Date().toISOString(),clips:[{id:'clip-1',start:0,end:10,title:'Original title',description:'Original copy',tags:['original'],publications:{}}]}));
+await writeFile(join(readyDir,'cues.json'),JSON.stringify([{start:0,end:10,text:'A complete test sentence.'}]));
+const child=spawn(process.execPath,['server.mjs'],{cwd:resolve('.'),env:{...process.env,PORT:'4396',CLIPMAX_DATA_DIR:data,CLIPMAX_SETTINGS_DIR:dir,CLIPMAX_VAULT_KEY:'',YTDLP_PATH:shim,AGY_PATH:shim,CLIPMAX_TEST_MARKER:marker},windowsHide:true,stdio:['ignore','pipe','pipe']});
+const base='http://127.0.0.1:4396';let stderr='';child.stderr.on('data',chunk=>stderr+=chunk);
+const call=async(path,method='GET',body)=>{const response=await fetch(base+path,{method,...(body?{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});const value=await response.json();assert.ok(response.ok,JSON.stringify(value));return value;};
+const until=async(predicate)=>{for(let i=0;i<200;i++){const value=await predicate();if(value)return value;await new Promise(r=>setTimeout(r,30));}throw Error('Cancellation check timed out: '+stderr);};
+try{
+ await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Server startup timeout')),10000);child.stdout.on('data',chunk=>{if(chunk.toString().includes('Clipmax Studio:')){clearTimeout(timer);resolve();}});child.once('error',reject);});
+ const first=await call('/api/jobs','POST',{url:'https://youtu.be/cancel-fixture',count:1,autoUpload:{enabled:false}});
+ await until(async()=>{try{return(await readFile(marker,'utf8')).includes(first.id);}catch{return false;}});
+ const second=await call('/api/jobs','POST',{url:'https://youtu.be/queued-fixture',count:1,autoUpload:{enabled:false}});
+ const stoppedQueued=await call('/api/jobs/'+second.id+'/cancel','POST',{});assert.equal(stoppedQueued.status,'cancelled');assert.equal(stoppedQueued.canCancel,false);
+ await call('/api/jobs/'+first.id+'/cancel','POST',{});
+ const stopped=await until(async()=>{const job=(await call('/api/jobs')).find(j=>j.id===first.id);return job?.status==='cancelled'&&!job.cancelling&&job;});
+ assert.equal(stopped.canCancel,false);assert.equal(stopped.autoUpload.enabled,false);
+ let calls=(await readFile(marker,'utf8')).trim().split(/\r?\n/);assert.equal(calls.length,1);assert.throws(()=>process.kill(Number(calls[0].split('|')[1]),0));
+ await call('/api/jobs/'+second.id+'/retry','POST',{});
+ await until(async()=>(await readFile(marker,'utf8')).includes(second.id));
+ await call('/api/jobs/'+second.id+'/cancel','POST',{});
+ await until(async()=>(await call('/api/jobs')).find(j=>j.id===second.id)?.status==='cancelled');
+ calls=(await readFile(marker,'utf8')).trim().split(/\r?\n/);for(const value of calls)assert.throws(()=>process.kill(Number(value.split('|')[1]),0));
+ const deleted=await call('/api/jobs/'+first.id,'DELETE',{});assert.ok(deleted.undoId);
+ const pendingMetadata=fetch(base+'/api/jobs/'+readyId+'/metadata',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(async response=>({status:response.status,value:await response.json()}));
+ await until(async()=>(await readFile(marker,'utf8')).includes(readyId));
+ await call('/api/jobs/'+readyId+'/cancel','POST',{});
+ const metadataResult=await pendingMetadata;assert.equal(metadataResult.status,400);
+ const kept=await until(async()=>{const job=(await call('/api/jobs')).find(j=>j.id===readyId);return !job.editing&&job;});
+ assert.equal(kept.status,'ready');assert.equal(kept.clips[0].title,'Original title');assert.equal(kept.workflow.stages.metadata.state,'cancelled');
+ for(const value of (await readFile(marker,'utf8')).trim().split(/\r?\n/))assert.throws(()=>process.kill(Number(value.split('|')[1]),0));
+ console.log('PASS: AI cancellation preserves existing copy; active import process exits; queued cancellation never starts; retry runs once; cancelled projects can be deleted; no downloads or uploads performed.');
+}finally{child.kill();await new Promise(resolve=>child.exitCode!==null?resolve():child.once('exit',resolve));await rm(dir,{recursive:true,force:true});}

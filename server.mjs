@@ -1,4 +1,6 @@
 import http from 'node:http';
+import aiUsage from './lib/ai-usage.cjs';
+import { withCancellation, taskSignal, throwIfCancelled, cancellationError } from './lib/cancellation.mjs';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, writeFile, rename, readdir, stat, unlink } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -6,6 +8,7 @@ import { resolve, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateSource, importWindow, run, parseVtt, validateClips, clipSrt, renderArgs } from './lib/core.mjs';
 import { analyze } from './lib/ai.mjs';
+import { generateMetadata, cleanStreamerName, streamerNameFor, creditStreamer } from './lib/metadata.mjs';
 import { publish, platforms, connectionStatus } from './lib/publish.mjs';
 import { Connections } from './lib/connections.mjs';
 import { transcribe } from './lib/transcribe.mjs';
@@ -43,6 +46,8 @@ for (const name of await readdir(dataDir)) {
     }
     for (const clip of job.clips || []) for (const p of Object.values(clip.publications || {})) if (p.status === 'uploading') { p.status = 'unknown'; p.error = 'Interrupted. Check the platform before retrying to avoid duplicate posts.'; changed = true; }
     for (const entry of [...Object.values(job.workflow?.stages || {}), ...Object.values(job.workflow?.clips || {}).flatMap(c => Object.values(c))]) if (entry.state === 'running') { entry.state = 'failed'; entry.message = 'Interrupted · retry or check the platform'; changed = true; }
+    if (job.canCancel || job.cancelling) changed = true;
+    job.canCancel = false; job.cancelling = false;
     job.publishing = false; job.editing = false;
     if (job.autoUpload?.enabled && ['checking', 'uploading', 'pending'].includes(job.autoUpload.state)) {
       job.autoUpload.state = 'blocked'; job.autoUpload.message = 'App restarted. Review your clips and check the platforms before publishing manually.'; changed = true;
@@ -59,10 +64,12 @@ function save(job) {
   writes.set(job.id, pending); return pending;
 }
 function progress(job, key, patch, clipId) {
+  if (taskSignal()?.aborted) return;
   updateStage(job, key, patch, clipId);
   if (Date.now() - (progressSaves.get(job) || 0) >= 750) { progressSaves.set(job, Date.now()); save(job).catch(console.error); }
 }
 async function stage(job, key, patch, clipId) {
+  throwIfCancelled();
   updateStage(job, key, patch, clipId); await save(job);
 }
 let ffmpeg = process.env.FFMPEG_PATH;
@@ -71,6 +78,40 @@ const ytdlp = process.env.YTDLP_PATH || join(root, 'bin', process.platform === '
 const whisper = process.env.WHISPER_PATH || join(root, 'bin', 'whisper', 'Release', 'whisper-cli.exe');
 const speechModel = process.env.WHISPER_MODEL_PATH || join(root, 'bin', 'whisper', 'ggml-base-q5_1.bin');
 let queue = Promise.resolve();
+const tasks = new Map();
+function beginTask(job, kind = 'pipeline') {
+  if (tasks.has(job.id)) throw new Error('This project already has an active task.');
+  const entry = { controller: new AbortController(), started: false, kind };
+  tasks.set(job.id, entry); job.canCancel = true; job.cancelling = false;
+  return entry;
+}
+async function pauseForQuota(job,error) {
+  job.status='paused';job.pauseReason=sanitize(error.message);job.resumeStage='analysis';delete job.error;
+  updateStage(job,'analysis',{state:'waiting',percent:null,message:'Waiting for AI quota · source and captions saved'});
+  if(job.autoUpload?.enabled){job.autoUpload.state='blocked';job.autoUpload.message='AI paused before upload. Review and publish manually after resuming.';}
+  await save(job);
+}
+async function cancelledJob(job, kind) {
+  if (kind === 'pipeline') {
+    job.status = 'cancelled'; job.cancelledAt = new Date().toISOString(); delete job.error;
+    job.notice = 'Cancelled. Imported video and completed exports are kept. Retry or delete this project.';
+    if (job.autoUpload?.enabled) { job.autoUpload.state = 'blocked'; job.autoUpload.message = 'Project cancelled. Nothing else will upload automatically.'; }
+  }
+  for (const entry of [...Object.values(job.workflow?.stages || {}), ...Object.values(job.workflow?.clips || {}).flatMap(c=>Object.values(c))]) {
+    if (['running','pending'].includes(entry.state)) { entry.state='cancelled';entry.message='Cancelled by you';entry.updatedAt=Date.now(); }
+  }
+}
+async function runTask(job, action, entry = beginTask(job)) {
+  if (entry.controller.signal.aborted) return;
+  entry.started = true;
+  try { return await withCancellation(entry.controller.signal, async()=>{ throwIfCancelled(); const result=await action(); throwIfCancelled(); return result; }); }
+  catch (error) { if (entry.controller.signal.aborted) { await cancelledJob(job, entry.kind); throw entry.controller.signal.reason; } throw error; }
+  finally { if (tasks.get(job.id) === entry) { tasks.delete(job.id);job.canCancel=false;job.cancelling=false;if(jobs.has(job.id))await save(job); } }
+}
+function scheduleProject(job, action) {
+  const entry=beginTask(job);
+  queue=queue.then(()=>runTask(job,action,entry)).catch(error=>{if(error.code!=='PROJECT_CANCELLED')console.error(error);});
+}
 let supportsSubtitles;
 async function canBurn() {
   if (supportsSubtitles === undefined) supportsSubtitles = (await run(ffmpeg, ['-filters'])).includes(' subtitles ');
@@ -127,6 +168,7 @@ async function processJob(job) {
     const basic = ['--no-playlist', '--no-progress', '--socket-timeout', '30', '--retries', '2'];
     const info = JSON.parse(await run(ytdlp, [...basic, '--skip-download', '--dump-single-json', '--', job.url], { cwd: dir }));
     if (info.is_live) throw new Error('Use a completed Twitch VOD or recorded video; live streams are not supported.');
+    job.sourceCreator = { name: cleanStreamerName(info.uploader || info.channel), handle: cleanStreamerName(info.uploader_id || info.channel_id) };
     job.title = String(info.title || 'Untitled video'); job.sourceDuration = Number(info.duration);
     const window = importWindow(job.sourceDuration, job.scanStart || 0, job.scanMinutes || 30);
     job.duration = window.duration;
@@ -161,6 +203,8 @@ async function processJob(job) {
     await stage(job, 'captions', { state: 'done', message: `${cues.length} timed captions ready` });
     await finishJob(job, dir, cues, config);
   } catch (e) {
+    throwIfCancelled();
+    if(e.code==='AI_QUOTA_PAUSED'){await pauseForQuota(job,e);return;}
     job.status = 'failed'; job.error = sanitize(e.message);
     for (const entry of [...Object.values(job.workflow?.stages || {}), ...Object.values(job.workflow?.clips || {}).flatMap(c => Object.values(c))]) if (entry.state === 'running') { entry.state = 'failed'; entry.message = 'Stopped · see error below'; }
     await save(job);
@@ -170,6 +214,11 @@ async function finishJob(job, dir, cues, config) {
     for(const key of ['framing','audio','editing'])updateStage(job,key,{state:'pending',percent:0,message:'Waiting for the new clip plan'});
     job.status = 'analyzing'; await stage(job, 'analysis', { state: 'running', percent: null, message: 'AI is selecting moments' });
     job.clips = validateClips(await analyze({ job, dir, cues, ffmpeg, source: join(dir, 'source.mp4'), config, onProgress: value => progress(job, 'analysis', { ...value, state: 'running' }) }), job.duration, job.count, job.maxSeconds);
+    for (const clip of job.clips) {
+      if (!clip.description || !clip.tags.length) throw new Error('AI returned incomplete publication details. Retry this project.');
+      Object.assign(clip, creditStreamer(clip, job));
+      clip.publicationMetadata = { streamerName: streamerNameFor(job), provider: job.provider === 'antigravity' ? 'Gemini CLI via Antigravity' : 'Gemini API', generatedAt: new Date().toISOString() };
+    }
     job.clips = job.clips.map(clip => completeClipEnd(clip,cues,job.duration,job.maxSeconds));
     job.clips=planBatchSound(job.clips.map(clip=>groundMood(clip,cues)),mediaSettings(job.media),job.id);
     job.workflow.clips={};
@@ -179,7 +228,7 @@ async function finishJob(job, dir, cues, config) {
       try {
         const layouts = await detectFraming({job,dir,source:join(dir,'source.mp4'),ffmpeg,onProgress:value=>progress(job,'framing',{...value,state:'running'})});
         for (const clip of job.clips) clip.framing = layouts[clip.id];
-      } catch (error) { job.framingNotice = 'Full source preserved. Automatic webcam detection was unavailable; adjust the webcam region in Edit clip.'; }
+      } catch (error) { throwIfCancelled(); job.framingNotice = 'Full source preserved. Automatic webcam detection was unavailable; adjust the webcam region in Edit clip.'; }
     }
     await stage(job,'framing',{state:'done',message:'Streamer-safe layouts ready; full-source fallback enabled'});
     job.status = 'rendering'; await stage(job, 'editing', { state: 'running', percent: 0, message: 'Preparing clip exports' });
@@ -190,6 +239,7 @@ async function finishJob(job, dir, cues, config) {
     }
     await stage(job, 'editing', { state: 'done', message: 'All clips exported' });
     job.status = 'ready'; await save(job);
+    throwIfCancelled();
     await maybeAutoUpload(job, { accounts: connections.summary().accounts, save, start: (clips, targets, options) => startPublishing(job, clips, targets, options, true) });
 }
 async function startPublishing(job, clips, targets, options, automatic = false) {
@@ -197,6 +247,16 @@ async function startPublishing(job, clips, targets, options, automatic = false) 
   job.publishing = true;
   let publishConfig;
   try {
+    const missing = clips.filter(clip => !clip.publicationMetadata || !clip.description || !clip.tags?.length || clip.publicationMetadata.streamerName !== streamerNameFor(job));
+    if (missing.length) {
+      await stage(job, 'metadata', { state: 'running', percent: null, message: 'Gemini CLI is writing publishing details before upload' });
+      try {
+        const dir = join(dataDir, job.id), cues = JSON.parse(await readFile(join(dir, 'cues.json'), 'utf8'));
+        const details = await generateMetadata({ job, clips: missing, cues, dir });
+        for (const value of details) Object.assign(missing.find(c => c.id === value.id), value);
+        await stage(job, 'metadata', { state: 'done', message: 'AI publishing details ready' });
+      } catch (error) { await stage(job, 'metadata', { state: error.code==='AI_QUOTA_PAUSED'?'waiting':'failed', message: 'Publishing paused: AI details could not be generated' }); throw error; }
+    }
     await managed.verify(targets,options);
     publishConfig = await connections.readyConfig(targets);
     if (automatic && targets.some(platform => !connections.summary().accounts.some(account => account.id === job.autoUpload.accountIds[platform] && account.platform === platform && account.active && account.mode !== 'browser'))) throw new Error('An auto-upload account changed. Review your clips and publish manually.');
@@ -204,7 +264,7 @@ async function startPublishing(job, clips, targets, options, automatic = false) 
     if (automatic) job.autoUpload.state = 'uploading';
     for (const clip of clips) for (const platform of targets) if (!clip.publications[platform]) updateStage(job, `upload:${platform}`, { state: 'pending', percent: null, message: 'Waiting for upload slot' }, clip.id);
     await save(job);
-  } catch (error) { job.publishing = false; throw error; }
+  } catch (error) { job.publishing = false; await save(job); throw error; }
   (async () => {
     try {
       for (const clip of clips) for (const platform of targets) {
@@ -302,6 +362,7 @@ const server = http.createServer(async (req, res) => {
       catch { res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Referrer-Policy': 'no-referrer' }); res.end('MCP sign-in did not complete. Return to Clipmax and connect again.'); return; }
       res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Referrer-Policy': 'no-referrer' }); res.end('MCP service connected directly to Clipmax. Return to the app to use its editing tools.'); return;
     }
+    if (req.method === 'GET' && path === '/api/ai/profile') return json(res,200,await aiUsage.readUsageStore(join(process.env.CLIPMAX_SETTINGS_DIR || dataDir,'ai-usage')));
     if (req.method === 'GET' && path === '/api/status') {
       let downloader = true; try { await access(ytdlp); } catch { downloader = Boolean(process.env.YTDLP_PATH); }
       const connected = connectionStatus(connections.config());
@@ -344,17 +405,32 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && restore) {
       const job = await restoreProject(dataDir, restore[1]); jobs.set(job.id, job); return json(res, 200, job);
     }
+    const cancel = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/cancel$/);
+    if (req.method === 'POST' && cancel) {
+      const job = getJob(cancel[1]), entry = tasks.get(job.id);
+      if (job.status === 'cancelled' || job.cancelling) return json(res, 200, job);
+      if (!entry || job.publishing) throw new Error('This project has no cancellable processing task.');
+      job.cancelling = true; entry.controller.abort(cancellationError());
+      if (!entry.started) { await cancelledJob(job,entry.kind);tasks.delete(job.id);job.canCancel=false;job.cancelling=false; }
+      await save(job); return json(res, 202, job);
+    }
     const retry = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/retry$/);
     if (req.method === 'POST' && retry) {
       const job = getJob(retry[1]);
-      if (job.status !== 'failed') throw new Error('Only failed projects can be retried.');
+      if (!['failed','cancelled','paused'].includes(job.status) || job.cancelling) throw new Error('Only stopped projects can be retried.');
       if ([...jobs.values()].filter(x => ['queued', 'importing', 'transcribing', 'analyzing', 'rendering'].includes(x.status)).length >= 5) throw new Error('Queue is full. Wait for a project to finish.');
+      if(job.status==='paused'&&job.resumeStage==='analysis'){
+        const dir=join(dataDir,job.id),cues=JSON.parse(await readFile(join(dir,'cues.json'),'utf8'));await access(join(dir,'source.mp4'));
+        job.status='queued';delete job.pauseReason;delete job.resumeStage;await save(job);
+        scheduleProject(job,async()=>{try{await finishJob(job,dir,cues,connections.config());}catch(error){throwIfCancelled();if(error.code==='AI_QUOTA_PAUSED')await pauseForQuota(job,error);else{job.status='failed';job.error=sanitize(error.message);await save(job);}}});
+        return json(res,202,job);
+      }
       if (job.workflow?.stages?.import?.state === 'done') job.importedSource = { url: job.url, start: job.scanStart || 0, end: (job.scanStart || 0) + job.duration };
       if (!job.importedSource && job.duration) {
         try { const media=await probeSource(ffmpeg,join(dataDir,job.id,'source.mp4')); if(Math.abs(media.duration-job.duration)<3){job.importedSource={url:job.url,start:job.scanStart||0,end:(job.scanStart||0)+job.duration};job.mediaInfo=media;} } catch {}
       }
-      job.status = 'queued'; job.clips = []; delete job.error; delete job.notice; delete job.workflow;
-      await save(job); queue = queue.then(() => processJob(job)).catch(console.error);
+      job.status = 'queued'; job.clips = []; delete job.cancelledAt; delete job.error; delete job.notice; delete job.workflow;
+      await save(job); scheduleProject(job, () => processJob(job));
       return json(res, 202, job);
     }
     if (req.method === 'POST' && path === '/api/jobs') {
@@ -364,11 +440,12 @@ const server = http.createServer(async (req, res) => {
       const scanStart = Number(input.scanStart || 0), scanMinutes = Number(input.scanMinutes || 30);
       if (!Number.isFinite(scanStart) || scanStart < 0 || !Number.isFinite(scanMinutes) || scanMinutes < 1 || scanMinutes > 120) throw new Error('Choose a valid scan start and a scan length of 1–120 minutes.');
       const job = { id: randomUUID(), url: validateSource(input.url), title: 'New project', createdAt: new Date().toISOString(), status: 'queued', scanStart, scanMinutes, count: Math.min(6, Math.max(1, Number(input.count) || 3)), maxSeconds: Math.min(90, Math.max(15, Number(input.maxSeconds) || 45)), aspect: ['9:16', '1:1', '16:9'].includes(input.aspect) ? input.aspect : '9:16', captions: input.captions !== false, provider: input.provider === 'gemini' ? 'gemini' : 'antigravity', model: String(input.model || '').slice(0, 100), clips: [] };
+      job.streamerName = cleanStreamerName(input.streamerName);
       job.autoUpload = autoUpload;
       job.media = mediaSettings(input.media);
       job.focus=FOCUSES.includes(input.focus)?input.focus:'weird_sad_unexpected';
       await mkdir(join(dataDir, job.id)); jobs.set(job.id, job); await save(job);
-      queue = queue.then(() => processJob(job)).catch(console.error);
+      scheduleProject(job, () => processJob(job));
       return json(res, 201, job);
     }
     const refine = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/refine$/);
@@ -377,19 +454,44 @@ const server = http.createServer(async (req, res) => {
       if (job.status !== 'ready' || job.publishing || job.editing || job.clips.some(c=>Object.keys(c.publications || {}).length)) throw new Error('Choose a ready project with no existing uploads.');
       job.media = mediaSettings(input.media || job.media); job.focus=FOCUSES.includes(input.focus)?input.focus:job.focus||'weird_sad_unexpected'; job.status = 'analyzing'; delete job.error;
       await save(job);
-      queue = queue.then(async()=>{try { const dir=join(dataDir,job.id), cues=JSON.parse(await readFile(join(dir,'cues.json'),'utf8')); await finishJob(job,dir,cues,connections.config()); } catch(error) { job.status='failed';job.error=sanitize(error.message);await save(job); }}).catch(console.error);
+      scheduleProject(job, async()=>{try { const dir=join(dataDir,job.id), cues=JSON.parse(await readFile(join(dir,'cues.json'),'utf8')); await finishJob(job,dir,cues,connections.config()); } catch(error) { throwIfCancelled(); if(error.code==='AI_QUOTA_PAUSED'){await pauseForQuota(job,error);return;} job.status='failed';job.error=sanitize(error.message);await save(job); }});
       return json(res,202,job);
+    }
+    const metadata = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/metadata$/);
+    if (req.method === 'POST' && metadata) {
+      const job = getJob(metadata[1]), input = await body(req);
+      if (job.status !== 'ready' || job.publishing || job.editing) throw new Error('Wait until this project is ready.');
+      const ids = input.clipIds;
+      if (ids !== undefined && (!Array.isArray(ids) || !ids.length || ids.some(id => !job.clips.some(c => c.id === id)))) throw new Error('Choose valid clips for AI details.');
+      const clips = job.clips.filter(c => !ids || ids.includes(c.id));
+      if (!clips.length) throw new Error('No clips are available.');
+      const nextStreamer = Object.hasOwn(input, 'streamerName') ? cleanStreamerName(input.streamerName) : job.streamerName;
+      const metadataJob = { ...job, streamerName: nextStreamer };
+      job.editing = true; delete job.metadataError;
+      try {
+        await stage(job, 'metadata', { state: 'running', percent: null, message: 'Gemini CLI is writing titles, descriptions and tags' });
+        const dir = join(dataDir, job.id), cues = JSON.parse(await readFile(join(dir, 'cues.json'), 'utf8'));
+        const details = await runTask(job, () => generateMetadata({ job: metadataJob, clips, cues, dir, onProgress: () => progress(job, 'metadata', { state: 'running', percent: null, message: 'Gemini CLI is writing titles, descriptions and tags' }) }), beginTask(job, 'metadata'));
+        job.streamerName = nextStreamer;
+        for (const value of details) Object.assign(clips.find(c => c.id === value.id), value);
+        await stage(job, 'metadata', { state: 'done', message: 'AI publishing details ready to review' });
+      } catch (error) {
+        job.metadataError = sanitize(error.message);
+        await stage(job, 'metadata', { state: error.code==='PROJECT_CANCELLED'?'cancelled':error.code==='AI_QUOTA_PAUSED'?'waiting':'failed', message: error.code==='PROJECT_CANCELLED'?'AI details cancelled; existing copy kept':error.code==='AI_QUOTA_PAUSED'?'Waiting for quota; existing copy kept':'AI details failed; existing copy kept' });
+      } finally { job.editing = false; await save(job); }
+      return json(res, job.metadataError ? 400 : 200, job.metadataError ? { error: job.metadataError } : job);
     }
     const edit = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/clips\/(clip-[1-6])$/);
     if (req.method === 'PATCH' && edit) {
       const job = getJob(edit[1]), clip = job.clips.find(c => c.id === edit[2]);
       if (!clip || job.status !== 'ready' || job.publishing || job.editing) throw new Error('Wait until this project is ready.');
-      const input = await body(req), next = { ...clip, ...validateClips({ clips: [{ ...clip, start: input.start ?? clip.start, end: input.end ?? clip.end, title: input.title ?? clip.title, caption: input.caption ?? clip.caption }] }, job.duration, 1, job.maxSeconds)[0], id: clip.id, publications: clip.publications };
+      const input = await body(req), next = { ...clip, ...validateClips({ clips: [{ ...clip, start: input.start ?? clip.start, end: input.end ?? clip.end, title: input.title ?? clip.title, caption: input.description ?? input.caption ?? clip.caption, description: input.description ?? input.caption ?? clip.description, tags: input.tags ?? clip.tags }] }, job.duration, 1, job.maxSeconds)[0], id: clip.id, publications: clip.publications };
       if (input.media !== undefined) next.media = mediaSettings(input.media);
       if(input.mood!==undefined){if(!MOODS.includes(input.mood))throw new Error('Choose a supported mood.');next.mood=input.mood;next.moodConfidence=1;next.moodReason='Mood chosen in the clip editor';delete next.soundPlan;
         const suggested=resolveSound({...mediaSettings(next.media||job.media),effects:'auto'},{...next,soundDesign:{...next.soundDesign,effect:undefined}});next.soundDesign={...next.soundDesign,effect:suggested.effects,reason:'Matched to the mood chosen in the editor'};
       }
       if(input.momentType!==undefined){if(!MOMENTS.includes(input.momentType))throw new Error('Choose a supported moment type.');next.momentType=input.momentType;}
+      if (next.start !== clip.start || next.end !== clip.end) delete next.publicationMetadata;
       const needsRender = next.start !== clip.start || next.end !== clip.end || input.media !== undefined || input.mood!==undefined || input.refreshFraming===true || input.refreshStyle===true;
       if (needsRender && Object.keys(clip.publications).length) throw new Error('Published clips cannot be retrimmed. Create a new project.');
       job.editing = true;

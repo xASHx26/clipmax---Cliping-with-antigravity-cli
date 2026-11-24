@@ -5,12 +5,12 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.10.0-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.12.0-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
 
-[Run with Docker](#run-with-docker) · [Desktop development](#desktop-development) · [Plugins](#plugins-live-inside-clipmax) · [Publishing](#preview-then-publish)
+[Partner setup · Windows](#partner-setup-windows) · [Connect YouTube](#connect-your-youtube-channel) · [Build an EXE](#build-a-windows-app) · [Run with Docker](#run-with-docker) · [Plugins](#plugins-live-inside-clipmax) · [Publishing](#preview-then-publish)
 
 </div>
 
@@ -25,7 +25,10 @@ Paste a video link. Find the weird reaction, unexpected reveal, emotional story,
 | **Local AI captions** | Use source subtitles or transcribe audio with the bundled multilingual Whisper model. Export animated phrase captions with word highlights, or choose steady/clean styles; SRT downloads remain available. |
 | **Head-safe layouts** | Sample faces and camera panels, add headroom, or preserve the full source over a blurred background when uncertain. |
 | **Mood-aware audio** | Keep speech clear, duck background beds, and choose varied opening accents to suit the edit. Choose 17 opening accents and 13 background styles with per-clip arrangements, or upload your own audio. |
-| **Live project tree** | Follow the vertical workflow with animated connections and progress from actual media-tool telemetry. |
+| **AI publishing details** | Gemini CLI via Antigravity writes clip-specific titles, descriptions and search tags from the actual clip transcript. Uses the source creator name in both title and description, with an editable override, specific curiosity hooks and relevant creator/topic tags. Review or regenerate them in Edit clip; YouTube receives the description and tags automatically. |
+| **Live project tree** | Follow the vertical workflow with animated connections and progress from actual media-tool telemetry. Project cards show live work indicators and measured upload progress without interrupting previews. |
+| **AI profile & quota** | Open the profile dashboard for provider-reported quota, reset times and account-report history. Manage sign-in through Antigravity’s official CLI. Low Gemini quota pauses AI work at 15% remaining; resume from saved source captions after a quota reset or official account switch. Unknown or stale balances are labeled. |
+| **Cancel and retry** | Stop active importing, transcription, AI selection or encoding, or remove a queued task. Keep downloaded source and completed exports; retry or delete after cancellation finishes. |
 | **Review and refine** | Play previews, trim, edit captions and titles, adjust mood, recheck framing, and delete or restore projects. |
 | **App-side MCP** | Connect optional editing and research services in the Plugins tab and run tools with reviewed inputs. |
 | **Multi-platform publishing** | Assisted browser posting in the desktop app, or direct API uploads with supported account permissions. |
@@ -43,6 +46,114 @@ flowchart TD
 ```
 
 Editorial scores and mood labels are suggestions. Framing checks sample six frames per clip; they are not continuous tracking. Review captions, composition, and story endings before posting. No tool can guarantee views.
+
+## Partner setup: Windows
+
+Start here on a new computer. **Use your own Antigravity sign-in and your own YouTube channel.** Your partner does not need your private configuration or credentials.
+
+### 1. Install the prerequisites
+
+- Windows 10/11, 64-bit, with several GB of free space for dependencies, media tools and build output.
+- [Node.js 22 or newer](https://nodejs.org/en/download) and [Git for Windows](https://git-scm.com/downloads/win).
+- The official [Antigravity CLI for Windows](https://antigravity.google/docs/getting-started?tab=cli). Follow Google's Windows installation instructions. The official PowerShell installer is shown below; open a **new PowerShell window** afterward so the updated PATH is loaded.
+
+```powershell
+irm https://antigravity.google/cli/install.ps1 | iex
+```
+
+Check the tools:
+
+```powershell
+node --version
+git --version
+agy --help
+```
+
+### 2. Connect Antigravity CLI
+
+```powershell
+agy
+```
+
+Complete Antigravity's one-time setup and its official browser sign-in. Choose the Google account with your Antigravity access. Sign-in happens with Google; Clipmax does not ask for your Google password. After the CLI opens normally, exit it and confirm that model discovery works:
+
+```powershell
+agy models
+```
+
+There is no `agy login` or `agy auth` subcommand in the CLI version used here. Launch `agy` to use its own sign-in controls. If you switch accounts, do it through Antigravity, then refresh usage before resuming Clipmax.
+
+In Clipmax choose **AI engine → Antigravity CLI**. Use a model ID shown by `agy models`, or clear the Model field to use the CLI default. Available models depend on your account. **No Gemini API key or .env file is required for the Windows desktop app's CLI route.** The optional Gemini API engine has separate API quota and billing.
+
+### 3. Download and run Clipmax
+
+```powershell
+git clone https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli.git
+cd clipmax---Cliping-with-antigravity-cli
+npm.cmd ci
+npm.cmd run setup
+npm.cmd run desktop
+```
+
+Run the commands from the repository folder. `npm.cmd` avoids PowerShell's npm.ps1 launcher-policy issue. Setup downloads yt-dlp, Whisper and its speech model, and the face model; FFmpeg is installed with the dependencies. The desktop app starts its own local server and stores settings automatically. Keep an internet connection available for the first setup and for AI requests.
+
+If you receive a prebuilt portable EXE instead, install/sign into Antigravity first and open that EXE. Node.js, Git and npm are needed for building or running from source, not for running the bundled EXE. The repository's `Launch Clipmax.cmd` is a shortcut for an already installed app, not a fresh installer.
+
+### Build a Windows app
+
+From the repository folder, after completing setup:
+
+```powershell
+npm.cmd test
+npm.cmd run build:app
+```
+
+The output is **`release/Clipmax-Studio-0.12.0-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
+
+To update a source checkout later, finish or cancel running projects, close Clipmax, run `git pull`, then repeat `npm.cmd ci`, `npm.cmd run setup`, tests and build. Keep the app's existing application-data folder to retain projects and connections.
+
+### Connect your YouTube channel
+
+A Google login in your browser alone does not grant Clipmax upload access. Set up a Google Desktop OAuth client once, then connect the channel inside Clipmax. These are your own Google developer credentials; there is no Clipmax publishing-service subscription for this route.
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) using an account that can manage the setup. Create a project, for example **Clipmax**. A paid trial is not required just to configure OAuth and enable the YouTube Data API.
+2. Open **APIs & Services → Library**, search **YouTube Data API v3**, and enable it.
+3. Open **Google Auth Platform → Branding** (older consoles may call this **OAuth consent screen**). Set the app name, your support email and developer contact details. Complete Google's required policy acknowledgments yourself.
+4. Under **Audience**, choose **External** for a personal account. While the app is in **Testing**, add the Google email that owns/manages the YouTube channel as a **test user**. Add your partner's channel account too if they use this developer project.
+5. Under **Data Access**, add the requested scopes: `https://www.googleapis.com/auth/youtube.upload` and `https://www.googleapis.com/auth/youtube.readonly`.
+6. Open **Clients → Create client**. Choose **Desktop app** and name it **Clipmax Desktop**. Download the OAuth client JSON and keep it private. If Google only offers the secret once, download it before closing the creation dialog. Do not create a Web application client; Desktop clients handle the local loopback callback automatically.
+7. In Clipmax click **+ Add connection → YouTube → Direct API sign-in**. Expand **One-time platform app setup** and choose **Import Google Desktop OAuth JSON**. Select the file from step 6, then click **Continue to sign in**.
+8. In Google's browser flow, select the account/channel you actually want to publish to and review the requested YouTube permissions. A self-created app in Testing can show an unverified-test-app notice; verify it is the developer app you just created before continuing.
+9. Return to Clipmax. Under **Connections**, confirm the correct channel name appears as **YouTube · Direct API · Active account**. If the name is wrong, reconnect the intended channel before posting.
+10. Use **Watch clip** and **Edit clip** to check the video, streamer name, title, description and tags. Choose **Publish selected** and start with **Private** visibility for a real upload check. Review the actual visibility and upload result in YouTube Studio before choosing Public for subsequent uploads.
+
+For future projects you may enable **Auto-upload after export**, select the verified channel, choose visibility and give publishing consent. Leave it off to review each clip first. Connecting an account does not post existing clips by itself.
+
+Google references: [Desktop OAuth clients and loopback callbacks](https://developers.google.com/identity/protocols/oauth2/native-app), [YouTube authorization](https://developers.google.com/youtube/v3/guides/authentication), [upload restrictions](https://developers.google.com/youtube/v3/docs/videos/insert).
+
+### Check AI quota and resume work
+
+Click **Your workspace → AI accounts & quota** at the bottom of the sidebar. Choose **Manage account & quota** to open the official Antigravity CLI with Clipmax's session-only usage reporter. Complete CLI setup/sign-in if prompted and open **`/usage`**. Return to Clipmax and press **Refresh**.
+
+The dashboard records Antigravity-reported account email, model, quota percentage, reset times and conversation token counts. Older reports are marked stale. Unknown balances remain unknown; conversation tokens are not a remaining account-token balance. Some headless CLI runs do not emit status-line telemetry, so use the interactive quota panel when no report is available.
+
+Fresh Gemini quota reports at or below **15%** pause new CLI AI work. An explicit provider quota error also creates an **AI paused** state instead of failing the whole import. After a reset, or after switching accounts through Antigravity's own controls, refresh `/usage` and choose **Resume AI from saved captions**. The downloaded video and transcript are reused. This retries the interrupted AI step; it cannot transfer a partially generated answer between accounts. **Automatic rotation of Google sign-in credentials is not implemented.** [Official quota telemetry](https://antigravity.google/docs/cli/statusline/) · [Quota panel](https://antigravity.google/docs/cli/commands/usage/).
+
+### What to send your partner
+
+Send the repository link or the portable EXE and this guide. They should authorize their own accounts. Never share `.env`, `connections.enc`, `credentials.key`, downloaded OAuth client JSON, API keys, or an entire copy of your application-data folder. Windows encryption ties saved desktop connections to the Windows profile that created them.
+
+### Common setup problems
+
+| Problem | What to check |
+| :--- | :--- |
+| `agy` is not recognized | Reopen PowerShell and Clipmax after installing the CLI. Check `Get-Command agy`. A custom installation can use AGY_PATH before starting the app. |
+| Model not found / no model access | Run `agy models`; use an accessible ID, or clear Clipmax's Model field. |
+| No quota report in the dashboard | Open **Manage account & quota**, complete CLI onboarding, run `/usage`, return and Refresh. Missing data is not treated as zero quota. |
+| Google says access is blocked / app is being tested | Add the exact channel owner's Google email as a test user in the correct Cloud project. |
+| Invalid OAuth client or redirect | Import a **Desktop app** JSON containing an installed client, not a Web client or service-account key. |
+| Channel connection expired | Reconnect using **+ Add connection** and grant access again. Testing-mode OAuth grants can expire. |
+| Video processing is taking too long | Open Project tree for the measured stage. **Cancel** stops processing and keeps saved media; after it finishes cancelling you can retry or delete the project. |
 
 ## Run with Docker
 
@@ -116,7 +227,7 @@ Use **Watch clip** in Clip studio or Project tree to see the final video with it
 
 Official publishing APIs still impose platform requirements: YouTube/TikTok OAuth need registered applications; TikTok can require posting approval; Facebook publishes to Pages; Instagram needs a professional account. Facebook Login for Business connections upload the local video directly; Instagram Login connections need publicly accessible HTTPS media. Browser sign-in does not grant API publishing permissions. Real-account uploads have not been verified across every platform.
 
-Account rotation and automatic Antigravity quota failover are **not implemented**. Clipmax uses the CLI account you explicitly sign into.
+Automatic credential rotation is **not implemented**. The profile dashboard reports official CLI quota when available; low quota pauses AI so you can refresh or switch through Antigravity and resume from saved captions.
 
 ## Connect accounts for automatic uploads
 
@@ -142,6 +253,8 @@ Open **Plugins** in the app sidebar. Built-in audio, story, and framing tools wo
 After connecting a service, inspect its live tool list, review the generated input form, and approve a tool run. These are app-side connections, independent of plugins in an AI chat. Service permissions, subscriptions, credits, and available tools apply. MCP tools are exposed for explicit runs; they do not automatically replace the whole clipping pipeline. Remote services cannot fetch `localhost` media. Authenticated third-party tool runs require verification with your own account.
 
 ## Desktop development
+
+For a complete new-machine walkthrough, use [Partner setup: Windows](#partner-setup-windows) above.
 
 The desktop shell targets **Windows x64**. Install **Node.js 22+** and sign into the official [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli).
 

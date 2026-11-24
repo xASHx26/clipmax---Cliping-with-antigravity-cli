@@ -5,6 +5,13 @@ import vm from 'node:vm';
 const context = { window: {}, URL, Date }; vm.createContext(context);
 vm.runInContext(await readFile(new URL('../public/workflow.js', import.meta.url), 'utf8'), context);
 const html = context.window.ClipmaxWorkflow.html;
+
+test('cancelled work keeps its measured progress and exposes retry instead of pretending it finished',()=>{
+ const result=html({id:'cancelled-project',status:'cancelled',clips:[],workflow:{stages:{import:{state:'cancelled',percent:42,message:'Cancelled by you'}}}});
+ assert.ok(result.includes('Cancelled'));assert.ok(result.includes('Retry project'));assert.ok(!result.includes('All clips exported'));
+ assert.match(result,/value="42" aria-label="Import video progress"/);
+ const running=html({id:'running-project',status:'importing',canCancel:true,clips:[]});assert.ok(running.includes('Cancel project'));
+});
 test('workflow branches by clip and platform, with no false browser-upload percentage', () => {
   const job = { status: 'ready', url: 'https://youtu.be/example', clips: [{ id: 'clip-1', title: '<script>bad</script>', url: '/clip-1.mp4', publications: { youtube: { status: 'processing' } } }, { id: 'clip-2', title: 'Second', url: '/clip-2.mp4', browserHandoffs: { tiktok: { status: 'awaiting_browser' } } }] };
   const result = html(job);

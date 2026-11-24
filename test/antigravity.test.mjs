@@ -5,4 +5,6 @@ test('Antigravity supports native JSON and terminal streaming results without co
   assert.deepEqual(agyResult(JSON.stringify({event:'init'})+'\n'+JSON.stringify({event:'result',result:{status:'SUCCESS',structured_output:plan}})),plan);
   assert.throws(()=>agyResult(JSON.stringify({status:'SUCCESS',response:'',json_schema:{type:'object'}})));
   assert.throws(()=>agyResult(JSON.stringify({status:'ERROR'})));
+  assert.throws(()=>agyResult(JSON.stringify({status:'ERROR',error:{code:'RESOURCE_EXHAUSTED',message:'quota exhausted'}})),error=>error.code==='AI_QUOTA_PAUSED');
+  assert.throws(()=>agyResult(JSON.stringify({event:'result',result:{status:'ERROR',error:{code:'RESOURCE_EXHAUSTED',message:'quota exhausted'}}})),error=>error.code==='AI_QUOTA_PAUSED');
 });
