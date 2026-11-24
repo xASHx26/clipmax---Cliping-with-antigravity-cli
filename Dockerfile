@@ -52,6 +52,7 @@ COPY --from=assets --chown=node:node /opt/agy/ /home/node/.local/bin/
 COPY --from=whisper-build /opt/whisper /opt/whisper
 COPY package.json package-lock.json server.mjs README.md ./
 COPY lib ./lib
+COPY desktop/port.cjs ./desktop/port.cjs
 COPY public ./public
 COPY test ./test
 COPY docker ./docker

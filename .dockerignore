@@ -4,6 +4,8 @@
 !server.mjs
 !lib/
 !lib/**
+!desktop/
+!desktop/port.cjs
 !public/
 !public/**
 !test/
