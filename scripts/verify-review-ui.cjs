@@ -12,7 +12,10 @@ job.clips.forEach((clip,index)=>Object.assign(clip,{mood:['awkward','sad','surpr
 const accounts = [{ id: 'youtube-api', platform: 'youtube', name: 'Test channel', active: true, mode: 'api' }, { id: 'tiktok-browser', platform: 'tiktok', name: 'Browser creator', active: true, mode: 'browser' }];
 const status = { accounts: { accounts, oauthReady: {} }, connections: { youtube: true, tiktok: true }, downloader: true };
 let lastCreate,lastEdit,lastMetadata;
+let pluginState='reconnecting';
 const server = createServer(async (req, res) => {
+  if(req.url==='/api/mcp'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify([{id:'descript',name:'Descript',description:'Test editing plugin',saved:true,connected:pluginState==='connected',status:pluginState}]));}
+  if(req.url==='/api/mcp/descript/tools'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify([{name:'read_project',description:'Test tool',inputSchema:{type:'object',properties:{project_id:{type:'string'}},required:['project_id']}}]));}
   if(req.url==='/api/ai/profile'){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({lastObservedAccount:'creator@example.com',automaticSwitchSupported:false,accounts:[{email:'creator@example.com',quota:{'gemini-weekly':{remaining_fraction:.36,remaining_amount:null,reset_time:new Date(Date.now()+3600000).toISOString()}},context_window:{total_input_tokens:1200,total_output_tokens:200},model:{display_name:'Gemini test model'},plan_tier:'Test plan',observedAt:new Date().toISOString(),stale:false}]}));}
   if (req.url === '/api/status') { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(status)); }
   if(req.method==='POST' && req.url.endsWith('/cancel')){job.status='cancelled';job.canCancel=false;job.cancelling=false;job.editing=false;for(const entry of Object.values(job.workflow.stages))if(entry.state==='running')entry.state='cancelled';res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(job));}
@@ -106,6 +109,13 @@ app.whenReady().then(async () => {
     assert.ok(await win.webContents.executeJavaScript(`document.getElementById('profile-page').textContent.includes('creator@example.com')`));
     assert.ok(await win.webContents.executeJavaScript(`document.getElementById('profile-page').textContent.includes('Automatic account handoff is unavailable')`));
     await new Promise(resolve=>setTimeout(resolve,200));writeFileSync(join(root,'data/review-ui-verification/ai-profile.png'),(await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript(`document.getElementById('plugins-nav').click();new Promise((resolve,reject)=>{const stop=setTimeout(()=>reject(Error('Plugin restoration UI timeout')),3000);const timer=setInterval(()=>{if(!mcpLoading){clearTimeout(stop);clearInterval(timer);resolve()}},25)})`);
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('mcp-services').textContent.includes('Reconnecting')`));
+    pluginState='connected';
+    await win.webContents.executeJavaScript('loadMcp(true)');
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('mcp-services').textContent.includes('Connected')`));
+    await win.webContents.executeJavaScript(`document.querySelector('[data-mcp-arg="project_id"]').value='keep-this-draft';loadMcp()`);
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-mcp-arg="project_id"]').value`),'keep-this-draft');
     assert.deepEqual(errors, []);
     console.log('PASS: Cancel controls, cancelled state, retry/delete availability, real upload progress, indeterminate AI progress, preserved playback, AI publishing fields, vertical tree, playable previews, mood tags/overrides, weird/sad/unexpected focus, automatic sound defaults, opt-in upload and browser-account exclusion.');
   } catch (error) { console.error(error); exitCode = 1; }

@@ -5,7 +5,7 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.12.0-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.12.1-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
@@ -108,13 +108,15 @@ npm.cmd test
 npm.cmd run build:app
 ```
 
-The output is **`release/Clipmax-Studio-0.12.0-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
+The output is **`release/Clipmax-Studio-0.12.1-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
 
 To update a source checkout later, finish or cancel running projects, close Clipmax, run `git pull`, then repeat `npm.cmd ci`, `npm.cmd run setup`, tests and build. Keep the app's existing application-data folder to retain projects and connections.
 
 ### Connect your YouTube channel
 
 A Google login in your browser alone does not grant Clipmax upload access. Set up a Google Desktop OAuth client once, then connect the channel inside Clipmax. These are your own Google developer credentials; there is no Clipmax publishing-service subscription for this route.
+
+**Partner using your existing Google project:** you do not need to create another project. Add their Google email under **Google Auth Platform → Audience → Test users** while the app is in Testing. Download the JSON from your existing **Desktop app** client under **Clients**, give that desktop client file to your partner, and have them import it in Clipmax. The **Client ID** and **Client secret** fields identify the app; they are not the partner's email or password. Your partner then clicks **Continue to sign in** and grants access with their own channel account. Each computer saves its own channel authorization; do not copy your `connections.enc`, `credentials.key`, or user-data folder.
 
 1. Open [Google Cloud Console](https://console.cloud.google.com/) using an account that can manage the setup. Create a project, for example **Clipmax**. A paid trial is not required just to configure OAuth and enable the YouTube Data API.
 2. Open **APIs & Services → Library**, search **YouTube Data API v3**, and enable it.
@@ -249,6 +251,8 @@ References: [Google OAuth for installed apps](https://developers.google.com/iden
 ## Plugins live inside Clipmax
 
 Open **Plugins** in the app sidebar. Built-in audio, story, and framing tools work locally. Optional **Descript** and **vidIQ** MCP presets connect through the official MCP SDK using Streamable HTTP and supported OAuth flows.
+
+Saved MCP authorizations reconnect automatically at startup. The desktop app reuses its local port when available, keeps the registered OAuth client for token refresh, and retries temporary connection failures in the background. A revoked or expired non-refreshable grant is labeled **Sign in again**; explicitly disconnecting removes the saved authorization.
 
 After connecting a service, inspect its live tool list, review the generated input form, and approve a tool run. These are app-side connections, independent of plugins in an AI chat. Service permissions, subscriptions, credits, and available tools apply. MCP tools are exposed for explicit runs; they do not automatically replace the whole clipping pipeline. Remote services cannot fetch `localhost` media. Authenticated third-party tool runs require verification with your own account.
 

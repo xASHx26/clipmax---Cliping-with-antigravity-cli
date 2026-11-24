@@ -5,17 +5,11 @@ const aiUsage = require('../lib/ai-usage.cjs');
 const { join } = require('node:path');
 const { mkdirSync, existsSync, readFileSync, writeFileSync } = require('node:fs');
 const { randomBytes } = require('node:crypto');
-const net = require('node:net');
+const { availablePort } = require('./port.cjs');
 let win, backend, appUrl, configPath, dataPath;
 const single = app.requestSingleInstanceLock();
 if (!single) app.quit();
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-function availablePort() {
-  return new Promise((resolve, reject) => {
-    const socket = net.createServer(); socket.once('error', reject);
-    socket.listen(0, '127.0.0.1', () => { const port = socket.address().port; socket.close(() => resolve(port)); });
-  });
-}
 async function start() {
   const home = app.getPath('userData'); mkdirSync(home, { recursive: true });
   dataPath = join(home, 'projects'); configPath = join(home, '.env');
@@ -27,7 +21,8 @@ async function start() {
   let vaultKey;
   if (existsSync(vaultKeyPath)) vaultKey = safeStorage.decryptString(readFileSync(vaultKeyPath));
   else { vaultKey = randomBytes(32).toString('base64'); writeFileSync(vaultKeyPath, safeStorage.encryptString(vaultKey)); }
-  const port = await availablePort(); appUrl = `http://127.0.0.1:${port}`;
+  const portFile=join(home,'desktop-port.json');let preferredPort=0;try{preferredPort=JSON.parse(readFileSync(portFile,'utf8')).port;}catch{}
+  const port = await availablePort(preferredPort);writeFileSync(portFile,JSON.stringify({port})); appUrl = `http://127.0.0.1:${port}`;
   Object.assign(env, { PORT: String(port), CLIPMAX_DATA_DIR: dataPath, CLIPMAX_SETTINGS_DIR: home, CLIPMAX_VAULT_KEY: vaultKey, ELECTRON_RUN_AS_NODE: '1' });
   if (app.isPackaged) {
     env.FACE_MODEL_DIR = join(resource, 'bin', 'face');

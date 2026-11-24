@@ -539,4 +539,4 @@ const server = http.createServer(async (req, res) => {
     json(res, 404, { error: 'Not found.' });
   } catch (e) { if (!res.headersSent) json(res, e.code === 'ENOENT' ? 404 : 400, { error: sanitize(e.message) }); else res.destroy(); }
 });
-server.listen(port, bindHost, () => console.log(`Clipmax Studio: http://127.0.0.1:${port}`));
+server.listen(port, bindHost, () => {console.log(`Clipmax Studio: http://127.0.0.1:${port}`);mcp.restore().catch(()=>{});});

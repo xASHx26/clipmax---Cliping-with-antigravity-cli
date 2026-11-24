@@ -377,17 +377,23 @@ async function nextBrowserUpload() {
 }
 $('handoff-next').addEventListener('click', () => nextBrowserUpload().catch(e => notify(e.message)));
 let mcpTools = [];
-async function loadMcp() {
+let mcpLoading=false,mcpServiceSignature='';
+async function loadMcp(force=false) {
+  if(mcpLoading)return;mcpLoading=true;
+  try{
   const services = await api('/api/mcp');
   $('plugin-count').textContent = services.filter(s => s.connected).length;
-  $('mcp-services').innerHTML = services.map(s => '<article class="plugin-card"><div class="plugin-card-top"><span class="plugin-logo ' + s.id + '">' + (s.id === 'descript' ? 'D' : 'v') + '</span><span class="plugin-state ' + (s.connected ? 'is-connected' : '') + '">' + (s.connected ? 'Connected' : s.saved ? 'Saved · reconnect' : s.status === 'awaiting_sign_in' ? 'Waiting for sign-in' : 'Not connected') + '</span></div><h3>' + escape(s.name) + '</h3><span class="plugin-category">MCP · ' + (s.id === 'descript' ? 'Video editing & captions' : 'Creator tools & video research') + '</span><p>' + escape(s.description) + '</p><div class="plugin-card-actions"><button class="button ' + (s.connected ? 'secondary' : 'primary') + '" data-mcp-connect="' + s.id + '">' + (s.connected ? 'Refresh tools' : 'Connect plugin') + '</button>' + (s.saved || s.connected ? '<button class="button secondary" data-mcp-disconnect="' + s.id + '">Disconnect</button>' : '') + '</div></article>').join('');
+  const signature=JSON.stringify(services);if(!force&&signature===mcpServiceSignature)return;mcpServiceSignature=signature;
+  $('mcp-services').innerHTML = services.map(s => '<article class="plugin-card"><div class="plugin-card-top"><span class="plugin-logo ' + s.id + '">' + (s.id === 'descript' ? 'D' : 'v') + '</span><span class="plugin-state ' + (s.connected ? 'is-connected' : '') + '">' + (s.connected ? 'Connected' : ['connecting','reconnecting'].includes(s.status) ? 'Reconnecting…' : s.status==='requires_sign_in' ? 'Sign in again' : s.status==='offline' ? 'Offline · retrying' : s.status === 'awaiting_sign_in' ? 'Waiting for sign-in' : s.saved ? 'Restoring saved sign-in' : 'Not connected') + '</span></div><h3>' + escape(s.name) + '</h3><span class="plugin-category">MCP · ' + (s.id === 'descript' ? 'Video editing & captions' : 'Creator tools & video research') + '</span><p>' + escape(s.description) + '</p><div class="plugin-card-actions"><button class="button ' + (s.connected ? 'secondary' : 'primary') + '" data-mcp-connect="' + s.id + '">' + (s.connected ? 'Refresh tools' : 'Connect plugin') + '</button>' + (s.saved || s.connected ? '<button class="button secondary" data-mcp-disconnect="' + s.id + '">Disconnect</button>' : '') + '</div></article>').join('');
   const connected = services.filter(s => s.connected);
   const previous = $('mcp-service').value;
   $('mcp-service').innerHTML = connected.map(s => '<option value="' + s.id + '">' + escape(s.name) + '</option>').join('');
   if (connected.some(s => s.id === previous)) $('mcp-service').value = previous;
   $('mcp-tool-form').hidden = !connected.length;
   if (connected.length) await loadMcpTools();
+  }catch(error){mcpServiceSignature='';throw error;}finally{mcpLoading=false;}
 }
+setInterval(()=>{if(!$('plugins-page').hidden)loadMcp().catch(error=>{$('mcp-progress').textContent=error.message;});},5000);
 async function loadMcpTools() {
   mcpTools = await api('/api/mcp/' + $('mcp-service').value + '/tools');
   $('mcp-tool').innerHTML = mcpTools.map(t => '<option value="' + escape(t.name) + '">' + escape(t.title || t.name) + '</option>').join('');
@@ -438,7 +444,7 @@ $('mcp-services').addEventListener('click', async e => {
       }
       if (!connected) throw new Error('Sign-in is not complete. Connect again when ready.');
     }
-    $('mcp-progress').textContent = 'Connected directly to Clipmax. Choose a tool below.'; await loadMcp();
+    $('mcp-progress').textContent = 'Connected directly to Clipmax. Choose a tool below.'; await loadMcp(true);
   } catch(error) { $('mcp-progress').textContent = error.message; } finally { button.disabled = false; }
 });
 $('mcp-tool-form').addEventListener('submit', async e => {
