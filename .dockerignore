@@ -13,6 +13,7 @@
 !scripts/
 !scripts/setup-face-model.mjs
 !scripts/verify-container.mjs
+!scripts/verify-sound-direction.mjs
 !docker/
 !docker/**
 !README.md

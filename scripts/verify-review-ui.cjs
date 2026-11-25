@@ -9,6 +9,7 @@ const job = JSON.parse(readFileSync(join(root, 'data/progress-verification/compl
 job.id = '11111111-1111-4111-8111-111111111111'; job.sourceCreator={name:'KaiCenat'};
 job.clips = Array.from({ length: 3 }, (_, index) => ({ ...job.clips[0], id: `clip-${index + 1}`, title: `Review clip ${index + 1}`, url: '/sample.mp4' }));
 job.clips.forEach((clip,index)=>Object.assign(clip,{mood:['awkward','sad','surprised'][index],momentType:['weird','sad','out_of_pocket'][index],moodConfidence:.9,moodReason:'Suggested from this clip’s dialogue',audio:{effects:['record_stop','none','pop'][index],background:['playful','melancholy','playful'][index],normalized:true,decision:'Matched to the suggested mood'}}));
+job.clips[0].audioDirection={verified:true,energy:'build',audibleEvidence:'Test fixture: quiet setup, then a surprised laugh.'};job.clips[0].audio.effectEvents=[{effect:'pop',at:2},{effect:'chime',at:4}];job.clips[0].audio.musicEnergy='build';
 const accounts = [{ id: 'youtube-api', platform: 'youtube', name: 'Test channel', active: true, mode: 'api' }, { id: 'tiktok-browser', platform: 'tiktok', name: 'Browser creator', active: true, mode: 'browser' }];
 const status = { accounts: { accounts, oauthReady: {} }, connections: { youtube: true, tiktok: true }, downloader: true };
 let lastCreate,lastEdit,lastMetadata;
@@ -51,6 +52,7 @@ app.whenReady().then(async () => {
     await win.loadURL(`http://127.0.0.1:${server.address().port}`);
     await win.webContents.executeJavaScript(`new Promise(resolve => { const timer=setInterval(()=>{if(document.querySelector('[data-preview]')){clearInterval(timer);resolve()}},50) })`);
     assert.equal(await win.webContents.executeJavaScript(`autoUploadInput().enabled`), false);
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('project-list').textContent.includes('AI listened to this clip')`));
     await win.webContents.executeJavaScript(`document.getElementById('tree-nav').click()`);
     const positions = await win.webContents.executeJavaScript(`[...document.querySelectorAll('.wf-tree .wf-node')].slice(0,4).map(node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y}})`);
     assert.ok(positions.every((r, i) => !i || r.y > positions[i - 1].y));

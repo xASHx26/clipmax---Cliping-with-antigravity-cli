@@ -20,3 +20,25 @@ Reported sound-event timings are approximate and were not used as precise edit m
 - Original music/speech can be preserved with background/effects off. Custom sound uploads remain available for specific samples you can publish.
 
 The built-in sounds are original synthesized designs in these broad categories. They are not the referenced creators' tracks, voices or exact recordings.
+
+## Six additional references · November 25, 2026
+
+Low-resolution analysis copies, mono MP3s, and five-frame contact sheets were prepared in temporary local storage. Antigravity/Gemini analyzed all six MP3s and six images. The CLI event audit recorded **12 completed `read_file` calls without tool errors**, matching the requested files; contact sheets were also inspected separately. The following are AI-assisted audio observations. Event times are approximate, exact track/sample identities are unconfirmed, and source versus editor-added scoring cannot always be separated.
+
+| Reference | Audible palette reported | Story beat and practical application |
+| --- | --- | --- |
+| [Adoption / game-dialogue reversal](https://www.youtube.com/shorts/8aVHWpjs0x8) | Low cinematic tension followed by a theatrical orchestral/brass-like swell. Dialogue and physical clatter also carry the scene. | The emotional pivot near 17–18 seconds motivates the musical lift. Build toward the reversal rather than applying the same opening hit throughout. |
+| [McDonald's gaming gadget](https://www.youtube.com/shorts/NjhsRFEhiTg) | A clean, upbeat electronic/synth bed underneath clear explainer narration. | A steady low bed suits informational pacing. Duck it under speech and let transitions breathe. |
+| [Toy street gag](https://www.youtube.com/shorts/LimEMNddgDc) | Rhythmic vocal syllables, toy clicks, street ambience; no clear separate music bed reported. | The original clicks already form a rhythm. Preserve their timing instead of covering them with unrelated music. |
+| [Sibling game prank](https://www.youtube.com/shorts/HIHZvJgIi_k) | Room sound, game chimes, escalating screams and a deadpan reversal; no clear added music reported. | Preserve the game cue and reaction. The calm-to-chaotic contrast supplies the payoff without a generic notification hit. |
+| [Sinus Fire Demon](https://www.youtube.com/shorts/CZhAuN7K104) | Light plucked/acoustic-style rhythm and character voice contrast. | Gentle comic backing supports the dialogue. Avoid huge bass impacts over a small deadpan joke. |
+| [Speed reaction](https://www.youtube.com/shorts/eUFkorW-1kk) | Quiet setup, a loud original vocal reaction near 1 second, overlapping call audio, and later exertion sounds; no clear music bed reported. | The vocal reaction is already a hook. Normalize and protect new peaks, preserve the reaction, and avoid another opening effect masking it. Existing recording distortion cannot be undone by a limiter. |
+
+### Applied in Clipmax 0.13
+
+- With Antigravity and automatic sound choices, the app extracts each selected clip's audio and requests a native audio review. Completed successful file-read events must cover every requested MP3 before the result is labeled audio-reviewed.
+- Decisions include audible evidence, original-music detection, a strong-opening flag, background style, a payoff time, an energy curve, and up to three spaced accents. A strong original hook and genuine sadness restrict extra effects.
+- Music can build into a reveal, soften afterward, or briefly lift then drop for a punchline. Original music is preserved; silence remains an intentional choice.
+- Added music and effects duck against a speech-focused sidechain. Bass accents retain their low-frequency body; final limiting protects the mix from new clipping.
+- Verified reviews are cached for the same source and clip ranges. A changed cut requires a fresh review. If review is unavailable, the app explicitly labels transcript-based fallback rather than claiming to have listened.
+- Manual sound choices remain available. These editing patterns are observations from selected examples, not evidence that a particular sound guarantees views.

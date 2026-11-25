@@ -57,6 +57,7 @@ COPY public ./public
 COPY test ./test
 COPY docker ./docker
 COPY scripts/verify-container.mjs ./scripts/verify-container.mjs
+COPY scripts/verify-sound-direction.mjs ./scripts/verify-sound-direction.mjs
 RUN mkdir -p /var/lib/clipmax /home/node/.gemini /home/node/.config /home/node/.cache \
     && chown -R node:node /var/lib/clipmax /home/node
 ENV NODE_ENV=production PORT=4310 CLIPMAX_BIND_HOST=0.0.0.0 \

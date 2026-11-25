@@ -21,3 +21,7 @@ test('upload bar uses real clip/platform measurements and escapes platform messa
  delete job.workflow.clips['clip-2']['upload:youtube'].percent;
  assert.match(activity(job),/Working…/);
 });
+test('native sound review shows listening activity without invented percentages',()=>{
+ const result=activity({status:'analyzing',workflow:{stages:{soundDirection:{state:'running',percent:null,message:'Listening to selected clip audio'}}}});
+ assert.match(result,/Listening to clip audio &amp; planning sound/);assert.ok(!result.includes('value="'));assert.match(result,/Listening to selected clip audio/);
+});

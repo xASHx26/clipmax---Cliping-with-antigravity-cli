@@ -17,6 +17,8 @@ jobs:
         run: docker compose run --rm -T clipmax npm test
       - name: Check real video, captions and tools
         run: docker compose run --rm -T clipmax node scripts/verify-container.mjs
+      - name: Check sound direction and speech ducking
+        run: docker compose run --rm -T clipmax node scripts/verify-sound-direction.mjs
       - name: Start app and check HTTP safety
         run: |
           docker compose up -d --wait --wait-timeout 90

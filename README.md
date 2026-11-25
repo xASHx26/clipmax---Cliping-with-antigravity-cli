@@ -5,7 +5,7 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.12.3-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.13.0-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
@@ -24,7 +24,7 @@ Paste a video link. Find the weird reaction, unexpected reveal, emotional story,
 | **Story-aware selection** | Look for setup, context, and payoff. Uncertain endings are flagged for review. |
 | **Local AI captions** | Use source subtitles or transcribe audio with the bundled multilingual Whisper model. Export animated phrase captions with word highlights, or choose steady/clean styles; SRT downloads remain available. |
 | **Head-safe layouts** | Sample faces and camera panels, add headroom, or preserve the full source over a blurred background when uncertain. |
-| **Mood-aware audio** | Keep speech clear, duck background beds, and choose varied opening accents to suit the edit. Choose 17 opening accents and 13 background styles with per-clip arrangements, or upload your own audio. |
+| **Mood-aware audio** | Antigravity listens to selected clip audio before automatic sound choices. Preserve existing music and strong original hooks; use up to three timed accents and music that builds, drops or softens at the payoff. Added sound ducks beneath speech. Choose 17 accents and 13 background styles, or upload your own audio. |
 | **AI publishing details** | Gemini CLI via Antigravity writes clip-specific titles, descriptions and search tags from the actual clip transcript. Uses the source creator name in both title and description, with an editable override, specific curiosity hooks and relevant creator/topic tags. Review or regenerate them in Edit clip; YouTube receives the description and tags automatically. |
 | **Live project tree** | Follow the vertical workflow with animated connections and progress from actual media-tool telemetry. Project cards show live work indicators and measured upload progress without interrupting previews. |
 | **AI profile & quota** | Open the profile dashboard for provider-reported quota, reset times and account-report history. Manage sign-in through Antigravity’s official CLI. Low Gemini quota pauses AI work at 15% remaining; resume from saved source captions after a quota reset or official account switch. Unknown or stale balances are labeled. |
@@ -108,7 +108,7 @@ npm.cmd test
 npm.cmd run build:app
 ```
 
-The output is **`release/Clipmax-Studio-0.12.3-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
+The output is **`release/Clipmax-Studio-0.13.0-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
 
 To update a source checkout later, finish or cancel running projects, close Clipmax, run `git pull`, then repeat `npm.cmd ci`, `npm.cmd run setup`, tests and build. Keep the app's existing application-data folder to retain projects and connections.
 
@@ -212,6 +212,12 @@ The published port is bound to `127.0.0.1`, and Host/Origin checks remain enable
 Choose **Pop & highlight**, **Word highlight**, or **Clean phrases** under editing settings. Captions use short phrases, bold outlines, safe positioning, and font fitting. Whisper full JSON preserves word/subword timestamps when valid; source-caption tracks and older projects use estimated word timing. SRT downloads stay plain and portable. To update an existing unposted clip, open Edit clip and choose **Re-render captions & sound**.
 
 Automatic batches vary suitable music families and save an arrangement seed for each clip, so exporting again preserves the chosen mix. **New background variation** chooses another arrangement without changing the original voice. New original sounds include tight bass drops, rimshots, rewinds, camera snaps, sparkle reveals, error bloops, cartoon slides, energy hits, and bright glass accents. Backgrounds add lo-fi keys/drums, bouncy bass, comedy pizzicato, cinematic piano/pads, and suspense pulses alongside fingerpicked acoustic, playful fiddle/plucks, epic orchestral builds, and the existing options. These are original synthesized arrangements, not extracted meme soundtracks.
+
+**Native sound direction (0.13):** with Antigravity and either sound choice on Auto, the app extracts each selected clip's audio for Gemini's native media reader. The CLI must report successful reads of every requested MP3 before Clipmax marks the review verified. It checks actual delivery, music and opening hooks, then plans sparse accents and a steady/build/release/punchline music curve. Speech-focused ducking protects the dialogue; the final limiter prevents new clipping. Original recording distortion cannot be repaired by limiting.
+
+This adds an AI pass and uses your existing CLI quota; no separate Gemini API key is needed. Identical source/cut reviews are cached. Failed media review is labeled as transcript-based fallback; quota exhaustion pauses processing. Choosing both music and effects manually skips this extra pass. Use **Improve story & mix** on an unposted project to reselect moments and apply the new review, or create a new project. Existing exports are not automatically replaced.
+
+The [November 25 study](docs/reference-study.md#six-additional-references--november-25-2026) covers all six newly supplied Shorts, with audited MP3/image reads and mood/timing takeaways. Some examples use music beds; others rely on original voices and action sounds. The app preserves that distinction rather than adding the same track or notification to everything.
 
 Reference videos supplied for this update: [Jack reaction edit](https://www.youtube.com/shorts/8PwGWe7cZbU), [golf commentary](https://www.youtube.com/shorts/C3rTyacPgM8), [alarm demonstration](https://www.youtube.com/shorts/nCjoqIu_N1U), and [Gatorade edit](https://www.youtube.com/shorts/u4kTT35aoIY). Frame inspection shows short commentary captions versus persistent meme headlines. Antigravity also analyzed the audio through its native media reader: reaction vocals/pitch drops, acoustic/folk backing, fiddle/chime cues, and an orchestral swell with bass/energy accents were reported. Exact soundtrack identities are unconfirmed; reference audio is not shipped with Clipmax. See the [reference study](docs/reference-study.md).
 

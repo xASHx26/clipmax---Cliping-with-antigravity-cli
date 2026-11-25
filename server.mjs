@@ -21,6 +21,7 @@ import { detectFraming } from './lib/framing.mjs';
 import { completeClipEnd } from './lib/context.mjs';
 import { FOCUSES, MOODS, MOMENTS, groundMood, resolveSound, planBatchSound, soundSeed } from './lib/mood.mjs';
 import { effectWave, backgroundWave, EFFECT_LENGTHS, BACKGROUNDS } from './lib/sounds.mjs';
+import { directClipSound } from './lib/sound-direction.mjs';
 import { clipAss } from './lib/captions.mjs';
 import { ManagedPublishing, managedStatus } from './lib/managed-publishing.mjs';
 import { PLATFORM_NAMES } from './lib/social-platforms.mjs';
@@ -127,8 +128,8 @@ async function render(job, clip) {
   const rawSettings=mediaSettings(clip.media || job.media);
   if(!rawSettings.soundSeed)rawSettings.soundSeed=clip.soundPlan?.soundSeed||soundSeed(`${job.id}:${clip.id}:${clip.start}`);
   const settings=resolveSound(rawSettings,clip);
-  if(rawSettings.effects==='auto' && clip.soundPlan){settings.effects=clip.soundPlan.effects;settings.effectAt=clip.soundPlan.effectAt;settings.soundReason=clip.soundPlan.soundReason;}
-  if(rawSettings.background==='auto' && clip.soundPlan)settings.background=clip.soundPlan.background;
+  if(rawSettings.effects==='auto' && clip.soundPlan){settings.effects=clip.soundPlan.effects;settings.effectAt=clip.soundPlan.effectAt;settings.effectEvents=clip.soundPlan.effectEvents;settings.soundReason=clip.soundPlan.soundReason;}
+  if(rawSettings.background==='auto' && clip.soundPlan){settings.background=clip.soundPlan.background;settings.musicEnergy=clip.soundPlan.musicEnergy;settings.payoffAt=clip.soundPlan.payoffAt;settings.musicVolume=clip.soundPlan.musicVolume;}
   job.mediaInfo ||= await probeSource(ffmpeg, source);
   await stage(job, 'audio', { state: 'running', percent: 0, message: 'Preparing speech and background audio' }, clip.id);
   await stage(job, 'audio', { state: 'running', percent: null, message: `Mixing audio for ${clip.id}` });
@@ -211,7 +212,7 @@ async function processJob(job) {
   }
 }
 async function finishJob(job, dir, cues, config) {
-    for(const key of ['framing','audio','editing'])updateStage(job,key,{state:'pending',percent:0,message:'Waiting for the new clip plan'});
+    for(const key of ['framing','soundDirection','audio','editing'])updateStage(job,key,{state:'pending',percent:0,message:'Waiting for the new clip plan'});
     job.status = 'analyzing'; await stage(job, 'analysis', { state: 'running', percent: null, message: 'AI is selecting moments' });
     job.clips = validateClips(await analyze({ job, dir, cues, ffmpeg, source: join(dir, 'source.mp4'), config, onProgress: value => progress(job, 'analysis', { ...value, state: 'running' }) }), job.duration, job.count, job.maxSeconds);
     for (const clip of job.clips) {
@@ -220,7 +221,7 @@ async function finishJob(job, dir, cues, config) {
       clip.publicationMetadata = { streamerName: streamerNameFor(job), provider: job.provider === 'antigravity' ? 'Gemini CLI via Antigravity' : 'Gemini API', generatedAt: new Date().toISOString() };
     }
     job.clips = job.clips.map(clip => completeClipEnd(clip,cues,job.duration,job.maxSeconds));
-    job.clips=planBatchSound(job.clips.map(clip=>groundMood(clip,cues)),mediaSettings(job.media),job.id);
+    job.clips=job.clips.map(clip=>groundMood(clip,cues));
     job.workflow.clips={};
     await stage(job, 'analysis', { state: 'done', message: `${job.clips.length} clips selected` });
     await stage(job,'framing',{state:'running',percent:null,message:'Finding streamer-safe layouts'});
@@ -231,6 +232,14 @@ async function finishJob(job, dir, cues, config) {
       } catch (error) { throwIfCancelled(); job.framingNotice = 'Full source preserved. Automatic webcam detection was unavailable; adjust the webcam region in Edit clip.'; }
     }
     await stage(job,'framing',{state:'done',message:'Streamer-safe layouts ready; full-source fallback enabled'});
+    delete job.soundNotice;
+    if(job.provider==='antigravity'&&(mediaSettings(job.media).effects==='auto'||mediaSettings(job.media).background==='auto')){
+      await stage(job,'soundDirection',{state:'running',percent:null,message:'AI is listening to each selected clip before choosing music and effects'});
+      try{job.mediaInfo ||= await probeSource(ffmpeg,join(dir,'source.mp4'));if(job.mediaInfo.hasAudio)job.clips=await directClipSound({job,clips:job.clips,cues,dir,source:join(dir,'source.mp4'),ffmpeg,onProgress:value=>progress(job,'soundDirection',{...value,state:'running'})});else job.soundNotice='Source has no audio. Background choices use transcript context; review the mix before publishing.';}
+      catch(error){throwIfCancelled();if(error.code==='AI_QUOTA_PAUSED'){await stage(job,'soundDirection',{state:'waiting',percent:null,message:'Waiting for quota before audio review'});throw error;}job.soundNotice='Native audio review was unavailable. Sound choices use transcript context; review the mix before publishing.';}
+      await stage(job,'soundDirection',{state:job.soundNotice?'skipped':'done',message:job.soundNotice?'Using transcript-based sound guidance':'Native audio review complete'});
+    }else await stage(job,'soundDirection',{state:'skipped',message:job.provider==='antigravity'?'Using your manual sound choices':'Sound guidance comes from video analysis'});
+    job.clips=planBatchSound(job.clips,mediaSettings(job.media),job.id);
     job.status = 'rendering'; await stage(job, 'editing', { state: 'running', percent: 0, message: 'Preparing clip exports' });
     for (const clip of job.clips) updateStage(job, 'editing', { state: 'pending', percent: 0, message: 'Waiting to encode' }, clip.id);
     for (const clip of job.clips) {
@@ -498,11 +507,11 @@ const server = http.createServer(async (req, res) => {
       if (!clip || job.status !== 'ready' || job.publishing || job.editing) throw new Error('Wait until this project is ready.');
       const input = await body(req), next = { ...clip, ...validateClips({ clips: [{ ...clip, start: input.start ?? clip.start, end: input.end ?? clip.end, title: input.title ?? clip.title, caption: input.description ?? input.caption ?? clip.caption, description: input.description ?? input.caption ?? clip.description, tags: input.tags ?? clip.tags }] }, job.duration, 1, job.maxSeconds)[0], id: clip.id, publications: clip.publications };
       if (input.media !== undefined) next.media = mediaSettings(input.media);
-      if(input.mood!==undefined){if(!MOODS.includes(input.mood))throw new Error('Choose a supported mood.');next.mood=input.mood;next.moodConfidence=1;next.moodReason='Mood chosen in the clip editor';delete next.soundPlan;
-        const suggested=resolveSound({...mediaSettings(next.media||job.media),effects:'auto'},{...next,soundDesign:{...next.soundDesign,effect:undefined}});next.soundDesign={...next.soundDesign,effect:suggested.effects,reason:'Matched to the mood chosen in the editor'};
+      if(input.mood!==undefined){if(!MOODS.includes(input.mood))throw new Error('Choose a supported mood.');next.mood=input.mood;next.moodConfidence=1;next.moodReason='Mood chosen in the clip editor';delete next.soundPlan;delete next.audioDirection;
+        const suggested=resolveSound({...mediaSettings(next.media||job.media),effects:'auto'},{...next,soundDesign:{...next.soundDesign,effect:undefined}});next.soundDesign={...next.soundDesign,music:!next.sourceHasMusic,effect:suggested.effects,reason:'Matched to the mood chosen in the editor'};
       }
       if(input.momentType!==undefined){if(!MOMENTS.includes(input.momentType))throw new Error('Choose a supported moment type.');next.momentType=input.momentType;}
-      if (next.start !== clip.start || next.end !== clip.end) delete next.publicationMetadata;
+      if (next.start !== clip.start || next.end !== clip.end) {delete next.publicationMetadata;delete next.audioDirection;delete next.soundPlan;}
       const needsRender = next.start !== clip.start || next.end !== clip.end || input.media !== undefined || input.mood!==undefined || input.refreshFraming===true || input.refreshStyle===true;
       if (needsRender && Object.keys(clip.publications).length) throw new Error('Published clips cannot be retrimmed. Create a new project.');
       job.editing = true;
