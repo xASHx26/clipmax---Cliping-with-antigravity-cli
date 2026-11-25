@@ -22,6 +22,7 @@ import { completeClipEnd } from './lib/context.mjs';
 import { FOCUSES, MOODS, MOMENTS, groundMood, resolveSound, planBatchSound, soundSeed } from './lib/mood.mjs';
 import { effectWave, backgroundWave, EFFECT_LENGTHS, BACKGROUNDS } from './lib/sounds.mjs';
 import { directClipSound } from './lib/sound-direction.mjs';
+import { remixGeneratedSound, recoverSoundReedits } from './lib/remix-sound.mjs';
 import { clipAss } from './lib/captions.mjs';
 import { ManagedPublishing, managedStatus } from './lib/managed-publishing.mjs';
 import { PLATFORM_NAMES } from './lib/social-platforms.mjs';
@@ -41,6 +42,8 @@ for (const name of await readdir(dataDir)) {
   try {
     const job = JSON.parse(await readFile(join(dataDir, name, 'job.json'), 'utf8'));
     let changed = false;
+    const soundRecovery=await recoverSoundReedits(join(dataDir,name),job);
+    if(job.soundReedit?.state==='working'||job.soundReedit?.recoveryNeeded||soundRecovery.restored||soundRecovery.needsAttention){job.soundReedit={...job.soundReedit,state:soundRecovery.committed&&!soundRecovery.restored&&!soundRecovery.needsAttention?'done':'failed',recoveryNeeded:soundRecovery.needsAttention,error:soundRecovery.needsAttention?'Sound recovery needs attention. Recovery copies are retained in the project folder.':soundRecovery.committed&&!soundRecovery.restored?null:soundRecovery.restored?'Sound re-edit was interrupted. Previous exports were restored.':'Sound re-edit stopped before completion. Previous exports were kept.'};changed=true;}
     if (['queued', 'importing', 'transcribing', 'analyzing', 'rendering'].includes(job.status)) {
       job.status = 'failed'; job.error = 'Processing stopped when the app closed. Retry this project to continue.'; changed = true;
       for (const stage of [...Object.values(job.workflow?.stages || {}), ...Object.values(job.workflow?.clips || {}).flatMap(c => Object.values(c))]) if (stage.state === 'running') stage.state = 'failed';
@@ -430,6 +433,7 @@ const server = http.createServer(async (req, res) => {
       const job = getJob(cancel[1]), entry = tasks.get(job.id);
       if (job.status === 'cancelled' || job.cancelling) return json(res, 200, job);
       if (!entry || job.publishing) throw new Error('This project has no cancellable processing task.');
+      if(entry.committing)throw new Error('The sound update is being saved. It will finish shortly.');
       job.cancelling = true; entry.controller.abort(cancellationError());
       if (!entry.started) { await cancelledJob(job,entry.kind);tasks.delete(job.id);job.canCancel=false;job.cancelling=false; }
       await save(job); return json(res, 202, job);
@@ -478,6 +482,21 @@ const server = http.createServer(async (req, res) => {
       return json(res,202,job);
     }
     const metadata = path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/metadata$/);
+    const remix=path.match(/^\/api\/jobs\/([a-f0-9-]{36})\/remix-sound$/);
+    if(req.method==='POST'&&remix){
+      const job=getJob(remix[1]),input=await body(req);
+      if(job.status!=='ready'||job.editing||job.publishing)throw Error('Wait until the project is ready before re-editing sound.');
+      if(job.soundReedit?.recoveryNeeded)throw Error('Close any open clip files and restart Clipmax to recover the previous sound edit first.');
+      if(!Array.isArray(input.clipIds)||!input.clipIds.length||new Set(input.clipIds).size!==input.clipIds.length||input.clipIds.some(id=>!job.clips.some(clip=>clip.id===id&&clip.url)))throw Error('Select generated clips to re-edit.');
+      const previousWorkflow=structuredClone(job.workflow||{stages:{},clips:{}}),entry=beginTask(job,'sound-remix');job.editing=true;job.soundReedit={state:'working',clipIds:input.clipIds,startedAt:new Date().toISOString()};
+      await stage(job,'soundDirection',{state:'running',percent:null,message:'Starting sound re-edit for selected clips'});
+      void runTask(job,async()=>{
+        try{await remixGeneratedSound({job,clipIds:input.clipIds,dir:join(dataDir,job.id),ffmpeg,report:(key,patch,clipId)=>progress(job,key,patch,clipId),beforeCommit:()=>{throwIfCancelled();entry.committing=true;job.canCancel=false;},commit:async updated=>{const previous=job.clips;job.clips=job.clips.map(clip=>updated.find(value=>value.id===clip.id)||clip);try{await save(job);}catch(error){job.clips=previous;throw error;}}});job.soundReedit={...job.soundReedit,state:'done',finishedAt:new Date().toISOString()};delete job.soundNotice;}
+        catch(error){const cancelled=taskSignal()?.aborted||error.code==='PROJECT_CANCELLED';if(!error.recoveryNeeded)job.workflow=previousWorkflow;job.soundReedit={...job.soundReedit,state:cancelled?'cancelled':error.code==='AI_QUOTA_PAUSED'?'paused':'failed',recoveryNeeded:error.recoveryNeeded===true,error:error.recoveryNeeded?'Sound update could not finish. Recovery copies are retained in the project folder.':cancelled?'Sound edit cancelled. Previous exports were kept.':sanitize(error.message)};updateStage(job,'soundDirection',{state:cancelled?'cancelled':error.code==='AI_QUOTA_PAUSED'?'waiting':'failed',percent:null,message:job.soundReedit.error});if(cancelled)throw error;}
+        finally{job.editing=false;await save(job);}
+      },entry).catch(()=>{});
+      return json(res,202,job);
+    }
     if (req.method === 'POST' && metadata) {
       const job = getJob(metadata[1]), input = await body(req);
       if (job.status !== 'ready' || job.publishing || job.editing) throw new Error('Wait until this project is ready.');

@@ -5,7 +5,7 @@
 **Turn a long video into short clips with a story worth finishing.**
 
 [![CI](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/xASHx26/clipmax---Cliping-with-antigravity-cli/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.13.0-c6f56b?style=flat-square&labelColor=171c1c)
+![Version](https://img.shields.io/badge/version-0.13.1-c6f56b?style=flat-square&labelColor=171c1c)
 ![Node](https://img.shields.io/badge/Node.js-22%2B-83b958?style=flat-square&labelColor=171c1c)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ed?style=flat-square&labelColor=171c1c)
 ![AI](https://img.shields.io/badge/AI-Antigravity_CLI-c6f56b?style=flat-square&labelColor=171c1c)
@@ -108,7 +108,7 @@ npm.cmd test
 npm.cmd run build:app
 ```
 
-The output is **`release/Clipmax-Studio-0.13.0-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
+The output is **`release/Clipmax-Studio-0.13.1-Windows.exe`**. Future versions use the version number in package.json. This is an unsigned portable Windows x64 app. Share that EXE with your partner; the `release/` directory is intentionally excluded from Git. Antigravity must still be installed and signed in separately on their PC. Media tools and local models are bundled.
 
 To update a source checkout later, finish or cancel running projects, close Clipmax, run `git pull`, then repeat `npm.cmd ci`, `npm.cmd run setup`, tests and build. Keep the app's existing application-data folder to retain projects and connections.
 
@@ -216,6 +216,8 @@ Automatic batches vary suitable music families and save an arrangement seed for 
 **Native sound direction (0.13):** with Antigravity and either sound choice on Auto, the app extracts each selected clip's audio for Gemini's native media reader. The CLI must report successful reads of every requested MP3 before Clipmax marks the review verified. It checks actual delivery, music and opening hooks, then plans sparse accents and a steady/build/release/punchline music curve. Speech-focused ducking protects the dialogue; the final limiter prevents new clipping. Original recording distortion cannot be repaired by limiting.
 
 This adds an AI pass and uses your existing CLI quota; no separate Gemini API key is needed. Identical source/cut reviews are cached. Failed media review is labeled as transcript-based fallback; quota exhaustion pauses processing. Choosing both music and effects manually skips this extra pass. Use **Improve story & mix** on an unposted project to reselect moments and apply the new review, or create a new project. Existing exports are not automatically replaced.
+
+**Re-edit existing clips:** select the generated clips and click **Re-edit sound**, next to **Publish selected**. It reuses the saved import, runs a fresh native mood/audio review, and makes new automatic music/effect arrangements. Only the audio track is replaced: encoded video, burned captions, cuts, titles, descriptions, tags and online publication records are preserved. It works on local copies of previously uploaded clips too; posts already online keep their previous audio, and this action never uploads anything. Progress and Cancel are available. New files are staged and previous exports are restored on failure or interruption. Keep the imported video in the project so the app can mix from its original audio instead of stacking sound over an old mix.
 
 The [November 25 study](docs/reference-study.md#six-additional-references--november-25-2026) covers all six newly supplied Shorts, with audited MP3/image reads and mood/timing takeaways. Some examples use music beds; others rely on original voices and action sounds. The app preserves that distinction rather than adding the same track or notification to everything.
 

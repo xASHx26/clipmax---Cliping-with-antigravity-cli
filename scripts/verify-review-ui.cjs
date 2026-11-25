@@ -12,10 +12,11 @@ job.clips.forEach((clip,index)=>Object.assign(clip,{mood:['awkward','sad','surpr
 job.clips[0].audioDirection={verified:true,energy:'build',audibleEvidence:'Test fixture: quiet setup, then a surprised laugh.'};job.clips[0].audio.effectEvents=[{effect:'pop',at:2},{effect:'chime',at:4}];job.clips[0].audio.musicEnergy='build';
 const accounts = [{ id: 'youtube-api', platform: 'youtube', name: 'Test channel', active: true, mode: 'api' }, { id: 'tiktok-browser', platform: 'tiktok', name: 'Browser creator', active: true, mode: 'browser' }];
 const status = { accounts: { accounts, oauthReady: {} }, connections: { youtube: true, tiktok: true }, downloader: true };
-let lastCreate,lastEdit,lastMetadata;
+let lastCreate,lastEdit,lastMetadata,lastRemix;
 let pluginState='reconnecting';
 let deleteCount=0,deleted=false;
 const server = createServer(async (req, res) => {
+  if(req.method==='POST'&&req.url.endsWith('/remix-sound')){let input='';for await(const part of req)input+=part;lastRemix=JSON.parse(input);job.editing=true;job.canCancel=true;job.soundReedit={state:'working'};job.workflow.stages.soundDirection={state:'running',percent:null,message:'Listening to selected clips'};res.writeHead(202,{'Content-Type':'application/json'});return res.end(JSON.stringify(job));}
   if(req.method==='POST'&&req.url.endsWith('/delete-confirmation')){res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({confirmation:'a'.repeat(64)}));}
   if(req.method==='DELETE'&&req.url==='/api/jobs/'+job.id){let body='';for await(const part of req)body+=part;const input=JSON.parse(body);assert.equal(input.confirmation,'a'.repeat(64));assert.equal(input.confirmationText,'DELETE');deleteCount++;deleted=true;res.setHeader('Content-Type','application/json');return res.end(JSON.stringify({deleted:true,permanent:true}));}
   if(req.method==='POST'&&req.url.endsWith('/publish')){for await(const part of req){}job.publishing=true;job.workflow.stages.metadata={state:'running',percent:null,message:'Preparing AI copy'};await new Promise(resolve=>setTimeout(resolve,800));job.workflow.stages.metadata.state='done';job.workflow.clips['clip-1']={'upload:youtube':{state:'running',percent:37,bytes:370000,totalBytes:1000000,message:'Sending video bytes'}};res.writeHead(202,{'Content-Type':'application/json'});return res.end(JSON.stringify(job));}
@@ -31,7 +32,7 @@ const server = createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(req.method === 'POST' ? job : deleted?[]:[job]));
   }
   const files = { '/': 'public/index.html', '/app.js': 'public/app.js', '/workflow.js': 'public/workflow.js', '/style.css': 'public/style.css', '/workflow.css': 'public/workflow.css', '/sample.mp4': 'data/verification/clip-1.mp4' };
-  const file = files[req.url]; if (!file) { res.writeHead(404); return res.end(); }
+  const file = files[new URL(req.url,'http://127.0.0.1').pathname]; if (!file) { res.writeHead(404); return res.end(); }
   res.setHeader('Content-Type', file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : file.endsWith('.mp4') ? 'video/mp4' : 'text/html');
   const bytes = readFileSync(join(root, file));
   res.setHeader('Accept-Ranges', 'bytes');
@@ -122,6 +123,16 @@ app.whenReady().then(async () => {
     assert.ok(await win.webContents.executeJavaScript(`document.getElementById('mcp-services').textContent.includes('Connected')`));
     await win.webContents.executeJavaScript(`document.querySelector('[data-mcp-arg="project_id"]').value='keep-this-draft';loadMcp()`);
     assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-mcp-arg="project_id"]').value`),'keep-this-draft');
+    job.status='ready';job.publishing=false;job.clips[0].publications.youtube={status:'uploaded',id:'existing-post'};
+    await win.webContents.executeJavaScript(`document.getElementById('studio-nav').click();refresh()`);
+    assert.ok(await win.webContents.executeJavaScript(`document.querySelector('[data-publish]').previousElementSibling.matches('[data-remix-sound]')`));
+    await win.webContents.executeJavaScript(`const input=document.querySelector('[data-select][value="clip-3"]');input.checked=false;input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-remix-sound]').click();new Promise((resolve,reject)=>{const stop=setTimeout(()=>reject(Error('Sound re-edit UI timeout')),3000);const timer=setInterval(()=>{if(document.querySelector('[data-publish]').disabled){clearTimeout(stop);clearInterval(timer);resolve()}},25)})`);
+    assert.deepEqual(lastRemix.clipIds,['clip-1','clip-2']);assert.equal(await win.webContents.executeJavaScript(`document.querySelector('[data-remix-sound]').disabled`),true);
+    job.editing=false;job.canCancel=false;job.soundReedit={state:'done'};job.workflow.stages.soundDirection.state='done';
+    await win.webContents.executeJavaScript(`(async()=>{await refresh();selections.get('${job.id}').add('clip-3')})()`);
+    assert.ok(await win.webContents.executeJavaScript(`document.getElementById('project-list').textContent.includes('existing online posts keep their previous audio')`));
+    await win.webContents.executeJavaScript(`document.querySelector('.project-share-actions').scrollIntoView({block:'center'})`);
+    await new Promise(resolve=>setTimeout(resolve,200));writeFileSync(join(root,'data/review-ui-verification/reedit-sound-button.png'),(await win.webContents.capturePage()).toPNG());
     job.status='ready';job.publishing=false;job.clips.forEach(clip=>clip.publications={});job.workflow.clips={};
     await win.webContents.executeJavaScript(`document.getElementById('studio-nav').click();refresh()`);
     await win.webContents.executeJavaScript(`document.querySelector('[data-publish]').click();document.querySelector('[name=platform][value=youtube]').checked=true;document.getElementById('publish-consent').checked=true;document.getElementById('publish-form').requestSubmit()`);
